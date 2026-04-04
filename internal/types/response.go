@@ -1,15 +1,14 @@
 package types
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
+	"github.com/Arush71/jobqueue/internal/jobs"
 )
 
 type ReqJob struct {
-	JobT      JT      `json:"job_type"`
-	ImagePath string  `json:"image_path"`
-	Params    ParamsT `json:"params"`
+	JobT      jobs.JT      `json:"job_type"`
+	ImagePath string       `json:"image_path"`
+	Params    jobs.ParamsT `json:"params"`
 }
 
 func (req *ReqJob) Validate() error {
@@ -17,7 +16,7 @@ func (req *ReqJob) Validate() error {
 		return fmt.Errorf("image path should not be empty")
 	}
 	switch req.JobT {
-	case Resize:
+	case jobs.Resize:
 		if v, ok := req.Params["width"]; !ok || v <= 0 {
 			return fmt.Errorf("must have width and be over 0")
 		}
@@ -29,7 +28,7 @@ func (req *ReqJob) Validate() error {
 
 			return fmt.Errorf("params must not have any extra fields")
 		}
-	case Compress:
+	case jobs.Compress:
 		q, ok := req.Params["quantity"]
 		if !ok {
 			return fmt.Errorf("must have quantity and be over 1 and under 100")
@@ -41,7 +40,7 @@ func (req *ReqJob) Validate() error {
 
 			return fmt.Errorf("params must not have any extra fields")
 		}
-	case GrayScale:
+	case jobs.GrayScale:
 		q, ok := req.Params["quality"]
 		if !ok {
 			return fmt.Errorf("must have quality and be over 0.1 and under 1")
@@ -56,35 +55,6 @@ func (req *ReqJob) Validate() error {
 	default:
 
 		return fmt.Errorf("job type is required")
-	}
-	return nil
-}
-
-func (j *JT) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf("job type must be a string")
-	}
-	switch JT(s) {
-	case Resize, GrayScale, Compress:
-		*j = JT(s)
-		return nil
-	default:
-		return fmt.Errorf("invalid job type")
-	}
-}
-
-func (p *ParamsT) UnmarshalJSON(data []byte) error {
-	var s map[string]float64
-	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf("paramaters must be a map")
-	}
-	if len(s) == 0 {
-		return fmt.Errorf("paramaters must not be empty")
-	}
-	*p = make(ParamsT)
-	for k, v := range s {
-		(*p)[strings.ToLower(k)] = v
 	}
 	return nil
 }

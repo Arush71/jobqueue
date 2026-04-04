@@ -6,14 +6,16 @@ import (
 	"net/http"
 
 	"github.com/Arush71/jobqueue/internal/api"
-	"github.com/Arush71/jobqueue/internal/types"
+	"github.com/Arush71/jobqueue/internal/jobs"
+	"github.com/Arush71/jobqueue/internal/queue"
+	"github.com/Arush71/jobqueue/internal/workers"
 )
 
 func setupHandler() *api.Handler {
-	JobId := &types.JobId{
+	JobId := &jobs.JobId{
 		Counter: 0,
 	}
-	Q := types.SetupQ()
+	Q := queue.SetupQ()
 	return &api.Handler{
 		JobId: JobId,
 		Queue: Q,
@@ -28,6 +30,7 @@ func main() {
 		Addr:    ":8080",
 		Handler: mux,
 	}
+	go workers.DoWork(handler.Queue)
 	fmt.Printf("Starting server...")
 	log.Fatal(server.ListenAndServe())
 }
