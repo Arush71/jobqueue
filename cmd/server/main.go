@@ -15,7 +15,7 @@ func setupHandler() *api.Handler {
 	JobId := &jobs.JobId{
 		Counter: 0,
 	}
-	Q := queue.SetupQ()
+	Q := queue.SetupQueue()
 	return &api.Handler{
 		JobId: JobId,
 		Queue: Q,

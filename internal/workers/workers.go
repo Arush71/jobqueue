@@ -2,7 +2,6 @@ package workers
 
 import (
 	"log"
-	"time"
 
 	"github.com/Arush71/jobqueue/internal/images"
 	"github.com/Arush71/jobqueue/internal/jobs"
@@ -12,11 +11,7 @@ import (
 
 func DoWork(q *queue.Queue) {
 	for {
-		job, ok := q.GetNextJob()
-		if !ok {
-			time.Sleep(2 * time.Second)
-			continue
-		}
+		job := q.GetWork()
 		log.Println("worker picked job: id =", job.JobId)
 		q.UpdateJob(job, jobs.Processing)
 		img, format, err := images.GetDecocdedImage(job.ImagePath)
