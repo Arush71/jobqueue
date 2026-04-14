@@ -1,9 +1,15 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/pressly/goose/v3/database"
 
 	"github.com/Arush71/jobqueue/internal/api"
 	"github.com/Arush71/jobqueue/internal/jobs"
@@ -22,6 +28,20 @@ func setupHandler() *api.Handler {
 	}
 }
 
+func setupDbAndEnv() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("Failed to load dotenv")
+	}
+	dbUrl := os.Getenv("DB_URL")
+	database, err := sql.Open("postgres", dbUrl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := database.Ping(); err != nil {
+		log.Fatal(err)
+	}
+	dbQuery := db
+}
 func main() {
 	handler := setupHandler()
 	mux := http.NewServeMux()
