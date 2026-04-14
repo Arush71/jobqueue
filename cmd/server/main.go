@@ -30,7 +30,9 @@ func main() {
 		Addr:    ":8080",
 		Handler: mux,
 	}
-	go workers.DoWork(handler.Queue)
+	for i := 0; i < 4; i++ {
+		go workers.DoWork(handler.Queue)
+	}
 	fmt.Printf("Starting server...")
 	log.Fatal(server.ListenAndServe())
 }
