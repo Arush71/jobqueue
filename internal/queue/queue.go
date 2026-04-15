@@ -7,7 +7,7 @@ import (
 )
 
 type Queue struct {
-	qS       []*jobs.Job
+	qS       []int64
 	qM       map[int64]*jobs.Job
 	notifyCh chan struct{}
 	reqCh    chan Request
@@ -15,7 +15,7 @@ type Queue struct {
 
 func SetupQueue() *Queue {
 	q := &Queue{
-		qS:       make([]*jobs.Job, 0),
+		qS:       make([]int64, 0),
 		qM:       make(map[int64]*jobs.Job),
 		notifyCh: make(chan struct{}, 1),
 		reqCh:    make(chan Request),
@@ -24,9 +24,9 @@ func SetupQueue() *Queue {
 	return q
 }
 
-func (q *Queue) AddJob(j *jobs.Job) {
+func (q *Queue) EnqueueJob(j_id int64) {
 	requeststr := AddReq{
-		Job: j,
+		JobId: j_id,
 	}
 	q.reqCh <- requeststr
 }
@@ -41,7 +41,7 @@ func (q *Queue) GetJobById(id int64) (jobs.Job, bool) {
 	info := <-sendChan
 	return info.Job, info.OK
 }
-func (q *Queue) GetWork() jobs.Job {
+func (q *Queue) GetWork() int64 {
 	for {
 		sendChan := make(chan GetQueueJob)
 		getJob := GetWorkS{
@@ -50,7 +50,7 @@ func (q *Queue) GetWork() jobs.Job {
 		q.reqCh <- getJob
 		info := <-sendChan
 		if info.OK {
-			return info.Job
+			return info.Job_id
 		}
 		<-q.notifyCh
 	}

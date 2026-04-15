@@ -35,3 +35,24 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (int64, er
 	err := row.Scan(&id)
 	return id, err
 }
+
+const getJobById = `-- name: GetJobById :one
+
+SELECT id, type, state, image_path, params, created_at, updated_at
+FROM jobs WHERE id = $1
+`
+
+func (q *Queries) GetJobById(ctx context.Context, id int64) (Job, error) {
+	row := q.db.QueryRowContext(ctx, getJobById, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.State,
+		&i.ImagePath,
+		&i.Params,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

@@ -2,7 +2,6 @@ package queue
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/Arush71/jobqueue/internal/jobs"
 )
@@ -11,12 +10,11 @@ type Request interface {
 	execute(q *Queue)
 }
 type AddReq struct {
-	Job *jobs.Job
+	JobId int64
 }
 
 func (a AddReq) execute(q *Queue) {
-	q.qS = append(q.qS, a.Job)
-	q.qM[a.Job.JobId] = a.Job
+	q.qS = append(q.qS, a.JobId)
 	select {
 	case q.notifyCh <- struct{}{}:
 	default:
@@ -63,26 +61,25 @@ func (gJ GetJobReq) execute(q *Queue) {
 }
 
 type GetQueueJob struct {
-	Job jobs.Job
-	OK  bool
+	Job_id int64
+	OK     bool
 }
 type GetWorkS struct {
 	SendChan chan<- GetQueueJob
 }
 
 func (g GetWorkS) execute(q *Queue) {
-	for _, j := range q.qS {
-		if j.State == jobs.Queued {
-			j.State = jobs.Processing
-			log.Println("job ", j.JobId, "->", jobs.Processing)
-			g.SendChan <- GetQueueJob{
-				Job: *j,
-				OK:  true,
-			}
-			return
+	len_job := len(q.qS)
+	if len_job == 0 {
+		g.SendChan <- GetQueueJob{
+			OK: false,
 		}
+		return
 	}
+	job_id := q.qS[0]
+	q.qS = q.qS[1:]
 	g.SendChan <- GetQueueJob{
-		OK: false,
+		OK:     true,
+		Job_id: job_id,
 	}
 }
