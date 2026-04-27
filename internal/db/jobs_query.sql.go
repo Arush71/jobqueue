@@ -56,3 +56,88 @@ func (q *Queries) GetJobById(ctx context.Context, id int64) (Job, error) {
 	)
 	return i, err
 }
+
+const getJobIfQueued = `-- name: GetJobIfQueued :one
+
+UPDATE jobs
+SET state = 'processing',
+updated_at = NOW()
+WHERE id = $1 AND state = 'queued'
+RETURNING id, type, state, image_path, params, created_at, updated_at
+`
+
+func (q *Queries) GetJobIfQueued(ctx context.Context, id int64) (Job, error) {
+	row := q.db.QueryRowContext(ctx, getJobIfQueued, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.State,
+		&i.ImagePath,
+		&i.Params,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLeftJobs = `-- name: GetLeftJobs :many
+
+SELECT id
+FROM jobs
+WHERE state = 'queued' 
+ORDER BY created_at
+`
+
+func (q *Queries) GetLeftJobs(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, getLeftJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateJobId = `-- name: UpdateJobId :exec
+
+UPDATE jobs
+SET state = $1, updated_at = NOW()
+WHERE id = $2
+`
+
+type UpdateJobIdParams struct {
+	State JobState
+	ID    int64
+}
+
+func (q *Queries) UpdateJobId(ctx context.Context, arg UpdateJobIdParams) error {
+	_, err := q.db.ExecContext(ctx, updateJobId, arg.State, arg.ID)
+	return err
+}
+
+const updateJobStateAtRestart = `-- name: UpdateJobStateAtRestart :exec
+
+UPDATE jobs
+SET state = 'queued',
+updated_at = NOW()
+WHERE state = 'processing'
+`
+
+func (q *Queries) UpdateJobStateAtRestart(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, updateJobStateAtRestart)
+	return err
+}

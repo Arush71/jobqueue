@@ -10,7 +10,6 @@ import (
 
 	"github.com/Arush71/jobqueue/internal/db"
 	"github.com/Arush71/jobqueue/internal/helpers"
-	"github.com/Arush71/jobqueue/internal/jobs"
 	"github.com/Arush71/jobqueue/internal/queue"
 	"github.com/Arush71/jobqueue/internal/store"
 	"github.com/Arush71/jobqueue/internal/types"
@@ -18,7 +17,6 @@ import (
 
 type Handler struct {
 	DbQ   *db.Queries
-	JobId *jobs.JobId
 	Queue *queue.Queue
 }
 
@@ -32,9 +30,6 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		helpers.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// id := h.JobId.GetNextId()
-	// job := jobs.CreateJob(req.ImagePath, req.JobT, req.Params, id)
-	// h.Queue.AddJob(job)
 	params, err := store.ToDBParams(req.Params)
 	if err != nil {
 		helpers.InternalServerError(w)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 )
 
 type JT string
@@ -32,19 +31,6 @@ type Job struct {
 	State     JobState
 	ImagePath string
 	Params    ParamsT
-}
-
-type JobId struct {
-	Counter int64
-	m       sync.Mutex
-}
-
-func (JId *JobId) GetNextId() int64 {
-	JId.m.Lock()
-	defer JId.m.Unlock()
-	currentId := JId.Counter
-	JId.Counter = currentId + 1
-	return currentId
 }
 
 func CreateJob(ImagePath string, JobType JT, Params ParamsT, id int64) *Job {

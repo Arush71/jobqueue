@@ -1,14 +1,7 @@
 package queue
 
-import (
-	"log"
-
-	"github.com/Arush71/jobqueue/internal/jobs"
-)
-
 type Queue struct {
 	qS       []int64
-	qM       map[int64]*jobs.Job
 	notifyCh chan struct{}
 	reqCh    chan Request
 }
@@ -16,7 +9,6 @@ type Queue struct {
 func SetupQueue() *Queue {
 	q := &Queue{
 		qS:       make([]int64, 0),
-		qM:       make(map[int64]*jobs.Job),
 		notifyCh: make(chan struct{}, 1),
 		reqCh:    make(chan Request),
 	}
@@ -31,16 +23,6 @@ func (q *Queue) EnqueueJob(j_id int64) {
 	q.reqCh <- requeststr
 }
 
-func (q *Queue) GetJobById(id int64) (jobs.Job, bool) {
-	sendChan := make(chan JobResult)
-	getjobstr := GetJobReq{
-		Id:       id,
-		SendChan: sendChan,
-	}
-	q.reqCh <- getjobstr
-	info := <-sendChan
-	return info.Job, info.OK
-}
 func (q *Queue) GetWork() int64 {
 	for {
 		sendChan := make(chan GetQueueJob)
@@ -55,18 +37,6 @@ func (q *Queue) GetWork() int64 {
 		<-q.notifyCh
 	}
 
-}
-
-func (q *Queue) UpdateJob(jId int64, state jobs.JobState) error {
-	sendChan := make(chan error)
-	updateStr := UpdateReq{
-		Id:          jId,
-		State:       state,
-		sendChannel: sendChan,
-	}
-	q.reqCh <- updateStr
-	log.Println("job ", jId, "->", state)
-	return <-sendChan
 }
 
 func (q *Queue) loop() {
