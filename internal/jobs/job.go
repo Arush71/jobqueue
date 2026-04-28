@@ -26,11 +26,12 @@ const (
 type ParamsT map[string]float64
 
 type Job struct {
-	JobId     int64
-	JobType   JT
-	State     JobState
-	ImagePath string
-	Params    ParamsT
+	JobId        int64
+	JobType      JT
+	State        JobState
+	ImagePath    string
+	Params       ParamsT
+	RetryCounter int16
 }
 
 func CreateJob(ImagePath string, JobType JT, Params ParamsT, id int64) *Job {

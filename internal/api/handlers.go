@@ -73,17 +73,19 @@ func (h *Handler) GetJobsById(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type JobRes struct {
-		JobId     int64           `json:"job_id"`
-		JobType   string          `json:"job_type"`
-		State     string          `json:"job_state"`
-		ImagePath string          `json:"image_path"`
-		Params    json.RawMessage `json:"params"`
+		JobId        int64           `json:"job_id"`
+		JobType      string          `json:"job_type"`
+		State        string          `json:"job_state"`
+		ImagePath    string          `json:"image_path"`
+		Params       json.RawMessage `json:"params"`
+		RetryCounter int16           `json:"retry_counter"`
 	}
 	helpers.WriteJson(w, http.StatusOK, JobRes{
-		JobId:     job.ID,
-		JobType:   string(job.Type),
-		State:     string(job.State),
-		ImagePath: job.ImagePath,
-		Params:    job.Params,
+		JobId:        job.ID,
+		JobType:      string(job.Type),
+		State:        string(job.State),
+		ImagePath:    job.ImagePath,
+		Params:       job.Params,
+		RetryCounter: job.RetryCounter,
 	})
 }

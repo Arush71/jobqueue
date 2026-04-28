@@ -38,7 +38,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (int64, er
 
 const getJobById = `-- name: GetJobById :one
 
-SELECT id, type, state, image_path, params, created_at, updated_at
+SELECT id, type, state, image_path, params, created_at, updated_at, retry_counter
 FROM jobs WHERE id = $1
 `
 
@@ -53,6 +53,7 @@ func (q *Queries) GetJobById(ctx context.Context, id int64) (Job, error) {
 		&i.Params,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetryCounter,
 	)
 	return i, err
 }
@@ -63,7 +64,7 @@ UPDATE jobs
 SET state = 'processing',
 updated_at = NOW()
 WHERE id = $1 AND state = 'queued'
-RETURNING id, type, state, image_path, params, created_at, updated_at
+RETURNING id, type, state, image_path, params, created_at, updated_at, retry_counter
 `
 
 func (q *Queries) GetJobIfQueued(ctx context.Context, id int64) (Job, error) {
@@ -77,6 +78,7 @@ func (q *Queries) GetJobIfQueued(ctx context.Context, id int64) (Job, error) {
 		&i.Params,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetryCounter,
 	)
 	return i, err
 }
@@ -139,5 +141,18 @@ WHERE state = 'processing'
 
 func (q *Queries) UpdateJobStateAtRestart(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, updateJobStateAtRestart)
+	return err
+}
+
+const updateRetryCounterAndChangeState = `-- name: UpdateRetryCounterAndChangeState :exec
+
+UPDATE jobs
+SET state = 'queued',
+updated_at = NOW(), retry_counter = retry_counter +1
+WHERE id = $1
+`
+
+func (q *Queries) UpdateRetryCounterAndChangeState(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, updateRetryCounterAndChangeState, id)
 	return err
 }

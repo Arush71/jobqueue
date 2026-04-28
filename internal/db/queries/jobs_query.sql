@@ -36,3 +36,11 @@ UPDATE jobs
 SET state = 'queued',
 updated_at = NOW()
 WHERE state = 'processing';
+
+-- name: UpdateRetryCounterAndChangeState :exec
+
+UPDATE jobs
+SET state = 'queued',
+updated_at = NOW(), retry_counter = retry_counter +1
+WHERE id = $1 AND state = 'processing';
+

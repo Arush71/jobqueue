@@ -30,14 +30,13 @@ func SaveImage(img image.Image, format string, inputPath string, quality int) (s
 	fileP := strings.TrimSuffix(inputPath, ext)
 	outputPath := fileP + "_output" + ext
 	outFile, err := os.Create(outputPath)
-	defer func() {
-		_ = outFile.Close()
-	}()
-
 	if err != nil {
 		log.Println("couldn't create the file , ", outputPath)
 		return "", err
 	}
+	defer func() {
+		_ = outFile.Close()
+	}()
 	switch format {
 	case "jpeg", "jpg":
 		err = jpeg.Encode(outFile, img, &jpeg.Options{Quality: quality})

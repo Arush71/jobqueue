@@ -17,7 +17,6 @@ const (
 	JobStateQueued     JobState = "queued"
 	JobStateProcessing JobState = "processing"
 	JobStateFail       JobState = "fail"
-	JobStateRetry      JobState = "retry"
 	JobStateSuccess    JobState = "success"
 )
 
@@ -100,11 +99,12 @@ func (ns NullJobType) Value() (driver.Value, error) {
 }
 
 type Job struct {
-	ID        int64
-	Type      JobType
-	State     JobState
-	ImagePath string
-	Params    json.RawMessage
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           int64
+	Type         JobType
+	State        JobState
+	ImagePath    string
+	Params       json.RawMessage
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	RetryCounter int16
 }

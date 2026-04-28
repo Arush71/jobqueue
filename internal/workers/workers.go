@@ -20,27 +20,27 @@ func DoWork(q *queue.Queue, dbQ *db.Queries) {
 	for {
 		job_id := q.GetWork()
 		log.Println("worker picked job: id =", job_id)
-		job, err := GetJobFromId(job_id, dbQ)
+		job, err := getJobFromId(job_id, dbQ)
 		if err != nil {
 			log.Printf("Error from worker: %s", err.Error())
 			continue
 		}
-		err = ManageJobImageProccessingWithContext(job)
+		err = manageJobImageProccessingWithContext(job)
 		if err != nil {
 			log.Println(err.Error())
-			if err := ChangeJobStateFromId(job.JobId, dbQ, jobs.Fail); err != nil {
-				log.Printf("[CRITICAL] invariant violation: job %d not found during update to state %s", job.JobId, job.State)
+			if err := manageRetries(dbQ, q, job); err != nil {
+				log.Printf("Failed to retry the job, error: %s, for id: %d", err.Error(), job.JobId)
 			}
 			continue
 		}
-		if err := ChangeJobStateFromId(job.JobId, dbQ, jobs.Success); err != nil {
+		if err := changeJobStateFromId(job.JobId, dbQ, jobs.Success); err != nil {
 			log.Printf("[CRITICAL] invariant violation: job %d not found during update to state %s", job.JobId, job.State)
 		}
 		log.Println("Job successfull", job.JobId)
 	}
 }
 
-func GetJobFromId(job_id int64, dbQ *db.Queries) (jobs.Job, error) {
+func getJobFromId(job_id int64, dbQ *db.Queries) (jobs.Job, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	job, err := dbQ.GetJobIfQueued(ctx, job_id)
@@ -55,22 +55,24 @@ func GetJobFromId(job_id int64, dbQ *db.Queries) (jobs.Job, error) {
 	parms, err := store.FromDBParams(job.Params)
 	if err != nil {
 		log.Printf("Parms failed for id %d", job_id)
-		err := ChangeJobStateFromId(job_id, dbQ, jobs.Fail)
+		// State change to failure without retries, beacuse of corrupted data.
+		err := changeJobStateFromId(job_id, dbQ, jobs.Fail)
 		if err != nil {
 			log.Printf("Important: Failed to set the job state to failure after data corruption for id: %d .", job_id)
 		}
 		return jobs.Job{}, fmt.Errorf("invalid parms for id %d ", job_id)
 	}
 	return jobs.Job{
-		JobId:     job.ID,
-		State:     jobs.JobState(job.State),
-		ImagePath: job.ImagePath,
-		JobType:   jobs.JT(job.Type),
-		Params:    parms,
+		JobId:        job.ID,
+		State:        jobs.JobState(job.State),
+		ImagePath:    job.ImagePath,
+		JobType:      jobs.JT(job.Type),
+		Params:       parms,
+		RetryCounter: job.RetryCounter,
 	}, nil
 }
 
-func ChangeJobStateFromId(job_id int64, dbQ *db.Queries, state jobs.JobState) error {
+func changeJobStateFromId(job_id int64, dbQ *db.Queries, state jobs.JobState) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := dbQ.UpdateJobId(ctx, db.UpdateJobIdParams{
@@ -78,13 +80,13 @@ func ChangeJobStateFromId(job_id int64, dbQ *db.Queries, state jobs.JobState) er
 		State: db.JobState(state),
 	})
 	if err != nil {
-		log.Printf("Important: Job state to %s failed for id %d", state, job_id)
+		log.Printf("Important [CRITICAL]: Job state to %s failed for id %d , error: %s", state, job_id, err.Error())
 		return err
 	}
 	return nil
 }
 
-func ManageJobImageProccessing(job jobs.Job, done chan error) {
+func manageJobImageProccessing(job jobs.Job, done chan error) {
 	img, format, err := images.GetDecocdedImage(job.ImagePath)
 	if err != nil {
 		done <- fmt.Errorf("error worker: couldn't either open or decode the image, for id: %d", job.JobId)
@@ -108,15 +110,33 @@ func ManageJobImageProccessing(job jobs.Job, done chan error) {
 	done <- nil
 }
 
-func ManageJobImageProccessingWithContext(job jobs.Job) error {
+func manageJobImageProccessingWithContext(job jobs.Job) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
-	go ManageJobImageProccessing(job, done)
+	go manageJobImageProccessing(job, done)
 	select {
 	case result := <-done:
 		return result
 	case <-ctx.Done():
 		return fmt.Errorf("the image processing hung")
 	}
+}
+
+func manageRetries(dbQ *db.Queries, queue *queue.Queue, job jobs.Job) error {
+	if job.RetryCounter >= jobs.MaxRetries {
+		// Marks the end of the job.
+		log.Printf("Job has exceeded retries, failed job: %d", job.JobId)
+		err := changeJobStateFromId(job.JobId, dbQ, jobs.Fail)
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := dbQ.UpdateRetryCounterAndChangeState(ctx, job.JobId)
+	if err != nil {
+		log.Printf("Important [CRITICAL]: failed to change job state to queue and increment retry_counte , error: %s , for id: %d", err.Error(), job.JobId)
+		return err
+	}
+	queue.EnqueueJob(job.JobId)
+	return nil
 }
