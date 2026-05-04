@@ -1,0 +1,89 @@
+package tests
+
+import (
+	"context"
+	"database/sql"
+	"log"
+	"testing"
+	"time"
+
+	"github.com/Arush71/jobqueue/internal/db"
+	"github.com/Arush71/jobqueue/internal/jobs"
+	"github.com/Arush71/jobqueue/internal/store"
+	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func SetupTestDb() *db.Queries {
+	database, err := sql.Open("postgres", "postgres://localhost:5432/job_queue_test?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := database.Ping(); err != nil {
+		log.Fatal(err)
+	}
+	dbQuery := db.New(database)
+	return dbQuery
+}
+
+func createValidJob() *jobs.Job {
+	return &jobs.Job{
+		ImagePath: "output/test1.jpg",
+		JobType:   "resize",
+		Params: jobs.ParamsT{
+			"width":  100,
+			"height": 100,
+		},
+	}
+}
+
+func ClearDb(dbq *db.Queries, t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := dbq.RemoveJobsFromDBForTest(ctx); err != nil {
+		t.Fatalf("Failed to clear db, error : %s", err.Error())
+	}
+}
+
+func startTimeCtx(t time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), t)
+	return ctx, cancel
+}
+
+func CreateTestJob(dbq *db.Queries, job_type jobs.JT, params jobs.ParamsT, image_path string) (int64, error) {
+	params_, err := store.ToDBParams(params)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	id, err := dbq.CreateJob(ctx, db.CreateJobParams{
+		Type:      db.JobType(job_type),
+		ImagePath: image_path,
+		Params:    params_,
+		State:     db.JobStateQueued,
+	})
+	return id, err
+}
+
+func TestJobStateAfterQueued(t *testing.T, dbq *db.Queries, ast *assert.Assertions, req *require.Assertions, job_id int64) (db.Job, error) {
+	ctx, cancel := startTimeCtx(5 * time.Second)
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Context exceeded, the worker has not yet finished the work.")
+		default:
+			ctx_2, cancel_2 := startTimeCtx(2 * time.Second)
+			job_data, err := dbq.GetJobById(ctx_2, job_id)
+			cancel_2()
+			require.NoError(t, err)
+			if job_data.State == db.JobStateSuccess {
+				return job_data, nil
+			}
+			require.NotEqual(t, db.JobStateFail, job_data.State)
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+}

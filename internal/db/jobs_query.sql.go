@@ -114,6 +114,16 @@ func (q *Queries) GetLeftJobs(ctx context.Context) ([]int64, error) {
 	return items, nil
 }
 
+const removeJobsFromDBForTest = `-- name: RemoveJobsFromDBForTest :exec
+
+TRUNCATE TABLE jobs RESTART IDENTITY
+`
+
+func (q *Queries) RemoveJobsFromDBForTest(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, removeJobsFromDBForTest)
+	return err
+}
+
 const updateJobId = `-- name: UpdateJobId :exec
 
 UPDATE jobs

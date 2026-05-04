@@ -1,3 +1,5 @@
+// Package jobs defines the core job structures, states, and types
+// used throughout the job queue system.
 package jobs
 
 import (
@@ -6,16 +8,20 @@ import (
 	"strings"
 )
 
+// JT represents the type of job to be performed.
 type JT string
 
+// Supported job types.
 const (
 	Resize    JT = "resize"
 	GrayScale JT = "grayscale"
 	Compress  JT = "compress"
 )
 
+// JobState represents the lifecycle state of a job.
 type JobState string
 
+// Possible job states.
 const (
 	Queued     JobState = "queued"
 	Processing JobState = "processing"
@@ -23,8 +29,10 @@ const (
 	Fail       JobState = "fail"
 )
 
+// ParamsT represents job-specific parameters as key-value pairs.
 type ParamsT map[string]float64
 
+// Job represents a unit of work to be processed by the system.
 type Job struct {
 	JobId        int64
 	JobType      JT
@@ -34,6 +42,8 @@ type Job struct {
 	RetryCounter int16
 }
 
+// CreateJob initializes a new Job with the provided parameters
+// and sets its initial state to queued.
 func CreateJob(ImagePath string, JobType JT, Params ParamsT, id int64) *Job {
 	return &Job{
 		JobId:     id,
@@ -43,6 +53,8 @@ func CreateJob(ImagePath string, JobType JT, Params ParamsT, id int64) *Job {
 		Params:    Params,
 	}
 }
+
+// UnmarshalJSON validates and parses a job type from JSON input.
 func (j *JT) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -57,6 +69,8 @@ func (j *JT) UnmarshalJSON(data []byte) error {
 	}
 }
 
+// UnmarshalJSON validates and parses job parameters from JSON input,
+// ensuring they are non-empty and normalized to lowercase keys.
 func (p *ParamsT) UnmarshalJSON(data []byte) error {
 	var s map[string]float64
 	if err := json.Unmarshal(data, &s); err != nil {

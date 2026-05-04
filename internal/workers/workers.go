@@ -16,11 +16,12 @@ import (
 	"github.com/disintegration/imaging"
 )
 
+// DoWork continuously pulls jobs from the queue and processes them.
 func DoWork(q *queue.Queue, dbQ *db.Queries) {
 	for {
-		job_id := q.GetWork()
-		log.Println("worker picked job: id =", job_id)
-		job, err := getJobFromId(job_id, dbQ)
+		jobID := q.GetWork()
+		log.Println("worker picked job: id =", jobID)
+		job, err := getJobFromID(jobID, dbQ)
 		if err != nil {
 			log.Printf("Error from worker: %s", err.Error())
 			continue
@@ -33,35 +34,37 @@ func DoWork(q *queue.Queue, dbQ *db.Queries) {
 			}
 			continue
 		}
-		if err := changeJobStateFromId(job.JobId, dbQ, jobs.Success); err != nil {
+		if err := changeJobStateFromID(job.JobId, dbQ, jobs.Success); err != nil {
 			log.Printf("[CRITICAL] invariant violation: job %d not found during update to state %s", job.JobId, job.State)
 		}
 		log.Println("Job successfull", job.JobId)
 	}
 }
 
-func getJobFromId(job_id int64, dbQ *db.Queries) (jobs.Job, error) {
+func getJobFromID(jobID int64, dbQ *db.Queries) (jobs.Job, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	job, err := dbQ.GetJobIfQueued(ctx, job_id)
+	job, err := dbQ.GetJobIfQueued(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Printf("Important: worker picked id that's not available in db or is already taken id:%d", job_id)
-			return jobs.Job{}, fmt.Errorf("%d not claimable", job_id)
+			log.Printf("Important: worker picked id that's not available in db or is already taken id:%d", jobID)
+			return jobs.Job{}, fmt.Errorf("%d not claimable", jobID)
 		}
-		log.Printf("Important: db error, fail to fetch job with id: %d", job_id)
-		return jobs.Job{}, fmt.Errorf("%s id of %d", err.Error(), job_id)
+		log.Printf("Important: db error, fail to fetch job with id: %d", jobID)
+		return jobs.Job{}, fmt.Errorf("%s id of %d", err.Error(), jobID)
 	}
 	parms, err := store.FromDBParams(job.Params)
 	if err != nil {
-		log.Printf("Parms failed for id %d", job_id)
+		log.Printf("Parms failed for id %d", jobID)
 		// State change to failure without retries, beacuse of corrupted data.
-		err := changeJobStateFromId(job_id, dbQ, jobs.Fail)
+		err := changeJobStateFromID(jobID, dbQ, jobs.Fail)
 		if err != nil {
-			log.Printf("Important: Failed to set the job state to failure after data corruption for id: %d .", job_id)
+			log.Printf("Important: Failed to set the job state to failure after data corruption for id: %d .", jobID)
 		}
-		return jobs.Job{}, fmt.Errorf("invalid parms for id %d ", job_id)
+
+		return jobs.Job{}, fmt.Errorf("invalid parms for id %d ", jobID)
 	}
+	log.Println(parms)
 	return jobs.Job{
 		JobId:        job.ID,
 		State:        jobs.JobState(job.State),
@@ -72,15 +75,15 @@ func getJobFromId(job_id int64, dbQ *db.Queries) (jobs.Job, error) {
 	}, nil
 }
 
-func changeJobStateFromId(job_id int64, dbQ *db.Queries, state jobs.JobState) error {
+func changeJobStateFromID(jobID int64, dbQ *db.Queries, state jobs.JobState) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := dbQ.UpdateJobId(ctx, db.UpdateJobIdParams{
-		ID:    job_id,
+		ID:    jobID,
 		State: db.JobState(state),
 	})
 	if err != nil {
-		log.Printf("Important [CRITICAL]: Job state to %s failed for id %d , error: %s", state, job_id, err.Error())
+		log.Printf("Important [CRITICAL]: Job state to %s failed for id %d , error: %s", state, jobID, err.Error())
 		return err
 	}
 	return nil
@@ -126,8 +129,7 @@ func manageJobImageProccessingWithContext(job jobs.Job) error {
 func manageRetries(dbQ *db.Queries, queue *queue.Queue, job jobs.Job) error {
 	if job.RetryCounter >= jobs.MaxRetries {
 		// Marks the end of the job.
-		log.Printf("Job has exceeded retries, failed job: %d", job.JobId)
-		err := changeJobStateFromId(job.JobId, dbQ, jobs.Fail)
+		err := changeJobStateFromID(job.JobId, dbQ, jobs.Fail)
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -1,3 +1,4 @@
+// Entry point of the application
 package main
 
 import (
@@ -30,8 +31,8 @@ func setupDbAndEnv() *db.Queries {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Failed to load dotenv")
 	}
-	dbUrl := os.Getenv("DB_URL")
-	database, err := sql.Open("postgres", dbUrl)
+	dbURL := os.Getenv("DB_URL")
+	database, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,6 +42,7 @@ func setupDbAndEnv() *db.Queries {
 	dbQuery := db.New(database)
 	return dbQuery
 }
+
 func RestoreLostJobs(q *queue.Queue, dbQ *db.Queries) {
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
@@ -49,15 +51,16 @@ func RestoreLostJobs(q *queue.Queue, dbQ *db.Queries) {
 		log.Fatal("FATAL: failed to change state while recovering : " + err.Error())
 		return
 	}
-	job_IDs, err := dbQ.GetLeftJobs(ctx)
+	jobIDs, err := dbQ.GetLeftJobs(ctx)
 	if err != nil {
 		log.Fatal("FATAL: failed to recover jobs from db: " + err.Error())
 		return
 	}
-	for _, v := range job_IDs {
+	for _, v := range jobIDs {
 		q.EnqueueJob(v)
 	}
 }
+
 func main() {
 	dbQuery := setupDbAndEnv()
 	handler := setupHandler(dbQuery)

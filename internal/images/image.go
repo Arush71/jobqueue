@@ -1,3 +1,4 @@
+// Package images provides utilities for decoding and saving images.
 package images
 
 import (
@@ -13,6 +14,8 @@ import (
 	"strings"
 )
 
+// GetDecocdedImage opens and decodes an image from the given file path,
+// returning the image, its format, or an error if decoding fails.
 func GetDecocdedImage(path string) (image.Image, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -25,6 +28,9 @@ func GetDecocdedImage(path string) (image.Image, string, error) {
 	img, format, err := image.Decode(file)
 	return img, format, err
 }
+
+// SaveImage encodes and saves an image to disk based on the provided format,
+// returning the output file path or an error if saving fails.
 func SaveImage(img image.Image, format string, inputPath string, quality int) (string, error) {
 	ext := filepath.Ext(inputPath)
 	fileP := strings.TrimSuffix(inputPath, ext)

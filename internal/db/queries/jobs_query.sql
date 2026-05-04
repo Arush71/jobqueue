@@ -42,5 +42,9 @@ WHERE state = 'processing';
 UPDATE jobs
 SET state = 'queued',
 updated_at = NOW(), retry_counter = retry_counter +1
-WHERE id = $1 AND state = 'processing';
+WHERE id = $1;
 
+
+-- name: RemoveJobsFromDBForTest :exec
+
+TRUNCATE TABLE jobs RESTART IDENTITY;

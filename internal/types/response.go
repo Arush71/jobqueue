@@ -1,16 +1,21 @@
+// Package types defines request and response structures used by the API.
 package types
 
 import (
 	"fmt"
+
 	"github.com/Arush71/jobqueue/internal/jobs"
 )
 
+// ReqJob represents a job creation request payload.
 type ReqJob struct {
 	JobT      jobs.JT      `json:"job_type"`
 	ImagePath string       `json:"image_path"`
 	Params    jobs.ParamsT `json:"params"`
 }
 
+// Validate checks whether the request contains valid fields
+// based on the job type and its required parameters.
 func (req *ReqJob) Validate() error {
 	if req.ImagePath == "" {
 		return fmt.Errorf("image path should not be empty")
@@ -22,10 +27,8 @@ func (req *ReqJob) Validate() error {
 		}
 		if v, ok := req.Params["height"]; !ok || v <= 0 {
 			return fmt.Errorf("must have height and be over 0")
-
 		}
 		if len(req.Params) > 2 {
-
 			return fmt.Errorf("params must not have any extra fields")
 		}
 	case jobs.Compress:
@@ -37,7 +40,6 @@ func (req *ReqJob) Validate() error {
 			return fmt.Errorf("must have quantity and be over 1 and under 100")
 		}
 		if len(req.Params) > 1 {
-
 			return fmt.Errorf("params must not have any extra fields")
 		}
 	case jobs.GrayScale:
@@ -49,7 +51,6 @@ func (req *ReqJob) Validate() error {
 			return fmt.Errorf("must have quality and be over 0.1 and under 1")
 		}
 		if len(req.Params) > 1 {
-
 			return fmt.Errorf("params must not have any extra fields")
 		}
 	default:
