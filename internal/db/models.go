@@ -6,9 +6,9 @@ package db
 
 import (
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type JobState string
@@ -55,56 +55,15 @@ func (ns NullJobState) Value() (driver.Value, error) {
 	return string(ns.JobState), nil
 }
 
-type JobType string
-
-const (
-	JobTypeResize    JobType = "resize"
-	JobTypeCompress  JobType = "compress"
-	JobTypeGrayscale JobType = "grayscale"
-)
-
-func (e *JobType) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = JobType(s)
-	case string:
-		*e = JobType(s)
-	default:
-		return fmt.Errorf("unsupported scan type for JobType: %T", src)
-	}
-	return nil
-}
-
-type NullJobType struct {
-	JobType JobType
-	Valid   bool // Valid is true if JobType is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullJobType) Scan(value interface{}) error {
-	if value == nil {
-		ns.JobType, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.JobType.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullJobType) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.JobType), nil
-}
-
 type Job struct {
 	ID           int64
-	Type         JobType
 	State        JobState
-	ImagePath    string
-	Params       json.RawMessage
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedAt    pgtype.Timestamp
+	UpdatedAt    pgtype.Timestamp
 	RetryCounter int16
+	JobType      string
+	Payload      []byte
+	Results      []byte
+	Error        pgtype.Text
+	CompletedAt  pgtype.Timestamptz
 }

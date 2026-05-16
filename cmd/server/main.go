@@ -3,15 +3,14 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
 
 	"github.com/Arush71/jobqueue/internal/api"
 	"github.com/Arush71/jobqueue/internal/db"
@@ -27,20 +26,21 @@ func setupHandler(dq *db.Queries) *api.Handler {
 	}
 }
 
-func setupDbAndEnv() *db.Queries {
+func setupDbAndEnv() (*pgxpool.Pool, *db.Queries) {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Failed to load dotenv")
 	}
 	dbURL := os.Getenv("DB_URL")
-	database, err := sql.Open("postgres", dbURL)
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := database.Ping(); err != nil {
-		log.Fatal(err)
+	if err = pool.Ping(context.Background()); err != nil {
+		log.Fatal("Unable to ping db:", err)
 	}
-	dbQuery := db.New(database)
-	return dbQuery
+	dbQuery := db.New(pool)
+	return pool, dbQuery
 }
 
 func RestoreLostJobs(q *queue.Queue, dbQ *db.Queries) {
@@ -62,7 +62,8 @@ func RestoreLostJobs(q *queue.Queue, dbQ *db.Queries) {
 }
 
 func main() {
-	dbQuery := setupDbAndEnv()
+	pool, dbQuery := setupDbAndEnv()
+	defer pool.Close()
 	handler := setupHandler(dbQuery)
 	RestoreLostJobs(handler.Queue, dbQuery)
 	mux := http.NewServeMux()

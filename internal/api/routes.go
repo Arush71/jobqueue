@@ -7,5 +7,6 @@ func AddRoutes(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /jobs", h.CreateJob)
 	// mux.HandleFunc("GET /jobs", )
 	mux.HandleFunc("GET /jobs/{id}", h.GetJobsByID)
+	mux.HandleFunc("GET /jobs/{id}/results", h.GetJobResult)
 	// mux.HandleFunc("DELETE /jobs/{id}", )
 }

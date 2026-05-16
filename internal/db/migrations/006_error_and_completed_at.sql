@@ -1,0 +1,13 @@
+-- +goose Up
+ALTER TABLE jobs
+ADD COLUMN error TEXT NULL;
+
+ALTER TABLE jobs
+ADD COLUMN completed_at TIMESTAMPTZ NULL;
+
+-- +goose Down
+ALTER TABLE jobs
+DROP COLUMN IF EXISTS error;
+
+ALTER TABLE jobs
+DROP COLUMN IF EXISTS completed_at;

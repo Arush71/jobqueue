@@ -1,7 +1,7 @@
 -- name: CreateJob :one
 
-INSERT INTO jobs(type, state,image_path,params)
-VALUES ($1,$2,$3,$4)
+INSERT INTO jobs(job_type, state,payload)
+VALUES ($1,$2,$3)
 RETURNING id;
 
 -- name: GetJobById :one
@@ -48,3 +48,21 @@ WHERE id = $1;
 -- name: RemoveJobsFromDBForTest :exec
 
 TRUNCATE TABLE jobs RESTART IDENTITY;
+
+
+-- name: GetResultFromJob :one
+
+SELECT state, results, error,completed_at FROM jobs
+WHERE id = $1;
+
+-- name: SuccessJobWithResult :exec
+
+UPDATE jobs
+SET state = 'success' , updated_at = NOW(), results = $2, completed_at = NOW()
+WHERE id = $1;
+
+-- name: FailJobWithError :exec
+
+UPDATE jobs
+SET state = 'fail' , updated_at = NOW(), error = $2, completed_at = NOW()
+WHERE id = $1;
