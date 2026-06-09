@@ -1,7 +1,7 @@
 -- name: CreateJob :one
 
-INSERT INTO jobs(job_type, state,payload)
-VALUES ($1,$2,$3)
+INSERT INTO jobs(job_type, state,payload,job_priority)
+VALUES ($1,$2,$3,$4)
 RETURNING id;
 
 -- name: GetJobById :one
@@ -25,7 +25,7 @@ RETURNING *;
 
 -- name: GetLeftJobs :many
 
-SELECT id
+SELECT id,job_priority
 FROM jobs
 WHERE state = 'queued' 
 ORDER BY created_at;

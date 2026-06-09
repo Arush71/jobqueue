@@ -13,19 +13,25 @@ import (
 
 const createJob = `-- name: CreateJob :one
 
-INSERT INTO jobs(job_type, state,payload)
-VALUES ($1,$2,$3)
+INSERT INTO jobs(job_type, state,payload,job_priority)
+VALUES ($1,$2,$3,$4)
 RETURNING id
 `
 
 type CreateJobParams struct {
-	JobType string
-	State   JobState
-	Payload []byte
+	JobType     string
+	State       JobState
+	Payload     []byte
+	JobPriority QueuePriority
 }
 
 func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (int64, error) {
-	row := q.db.QueryRow(ctx, createJob, arg.JobType, arg.State, arg.Payload)
+	row := q.db.QueryRow(ctx, createJob,
+		arg.JobType,
+		arg.State,
+		arg.Payload,
+		arg.JobPriority,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -50,7 +56,7 @@ func (q *Queries) FailJobWithError(ctx context.Context, arg FailJobWithErrorPara
 
 const getJobById = `-- name: GetJobById :one
 
-SELECT id, state, created_at, updated_at, retry_counter, job_type, payload, results, error, completed_at
+SELECT id, state, created_at, updated_at, retry_counter, job_type, payload, results, error, completed_at, job_priority
 FROM jobs WHERE id = $1
 `
 
@@ -68,6 +74,7 @@ func (q *Queries) GetJobById(ctx context.Context, id int64) (Job, error) {
 		&i.Results,
 		&i.Error,
 		&i.CompletedAt,
+		&i.JobPriority,
 	)
 	return i, err
 }
@@ -78,7 +85,7 @@ UPDATE jobs
 SET state = 'processing',
 updated_at = NOW()
 WHERE id = $1 AND state = 'queued'
-RETURNING id, state, created_at, updated_at, retry_counter, job_type, payload, results, error, completed_at
+RETURNING id, state, created_at, updated_at, retry_counter, job_type, payload, results, error, completed_at, job_priority
 `
 
 func (q *Queries) GetJobIfQueued(ctx context.Context, id int64) (Job, error) {
@@ -95,31 +102,37 @@ func (q *Queries) GetJobIfQueued(ctx context.Context, id int64) (Job, error) {
 		&i.Results,
 		&i.Error,
 		&i.CompletedAt,
+		&i.JobPriority,
 	)
 	return i, err
 }
 
 const getLeftJobs = `-- name: GetLeftJobs :many
 
-SELECT id
+SELECT id,job_priority
 FROM jobs
 WHERE state = 'queued' 
 ORDER BY created_at
 `
 
-func (q *Queries) GetLeftJobs(ctx context.Context) ([]int64, error) {
+type GetLeftJobsRow struct {
+	ID          int64
+	JobPriority QueuePriority
+}
+
+func (q *Queries) GetLeftJobs(ctx context.Context) ([]GetLeftJobsRow, error) {
 	rows, err := q.db.Query(ctx, getLeftJobs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []GetLeftJobsRow
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var i GetLeftJobsRow
+		if err := rows.Scan(&i.ID, &i.JobPriority); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

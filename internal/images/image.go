@@ -8,7 +8,6 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +18,6 @@ import (
 func GetDecocdedImage(path string) (image.Image, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		log.Println("Image path not found : ", path)
 		return nil, "", err
 	}
 	defer func() {
@@ -37,7 +35,6 @@ func SaveImage(img image.Image, format string, inputPath string, quality int) (s
 	outputPath := fileP + "_output" + ext
 	outFile, err := os.Create(outputPath)
 	if err != nil {
-		log.Println("couldn't create the file , ", outputPath)
 		return "", err
 	}
 	defer func() {
@@ -52,7 +49,6 @@ func SaveImage(img image.Image, format string, inputPath string, quality int) (s
 		return "", fmt.Errorf("unsupported format: %s", format)
 	}
 	if err != nil {
-		log.Println("error trying to encode the image, ", outputPath)
 		return "", err
 	}
 	return outputPath, nil

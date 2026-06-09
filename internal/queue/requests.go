@@ -1,5 +1,7 @@
 package queue
 
+import "github.com/Arush71/jobqueue/internal/metrics"
+
 // Request represents a queue operation that can be executed
 // within the queue's internal event loop.
 type Request interface {
@@ -8,13 +10,25 @@ type Request interface {
 
 // AddReq represents a request to add a job ID to the queue.
 type AddReq struct {
-	JobID int64
+	JobID    int64
+	priority Priority
 }
 
 // execute appends the job ID to the queue and notifies
 // waiting workers that a new job is available.
 func (a AddReq) execute(q *Queue) {
-	q.qS = append(q.qS, a.JobID)
+	switch a.priority {
+	case High:
+		q.priorityQueues.high = append(q.priorityQueues.high, a.JobID)
+	case Normal:
+		q.priorityQueues.normal = append(q.priorityQueues.normal, a.JobID)
+	case Low:
+		q.priorityQueues.low = append(q.priorityQueues.low, a.JobID)
+	default:
+		// should be impossible
+		return
+	}
+	metrics.QueueDepth.Inc()
 	select {
 	case q.notifyCh <- struct{}{}:
 	default:
@@ -36,15 +50,19 @@ type GetWorkS struct {
 // execute attempts to retrieve a job from the queue and sends
 // the result back through the provided channel.
 func (g GetWorkS) execute(q *Queue) {
-	lenJob := len(q.qS)
-	if lenJob == 0 {
+	queue, ok := q.priorityQueues.selectQueue()
+	if !ok {
 		g.SendChan <- GetQueueJob{
 			OK: false,
 		}
 		return
 	}
-	jobID := q.qS[0]
-	q.qS = q.qS[1:]
+	jobID := (*queue)[0]
+	*queue = (*queue)[1:]
+	// abandoning the internal array to better manage memory
+	if len(*queue) == 0 {
+		*queue = make(queueType, 0)
+	}
 	g.SendChan <- GetQueueJob{
 		OK:    true,
 		JobID: jobID,

@@ -55,6 +55,49 @@ func (ns NullJobState) Value() (driver.Value, error) {
 	return string(ns.JobState), nil
 }
 
+type QueuePriority string
+
+const (
+	QueuePriorityHigh   QueuePriority = "high"
+	QueuePriorityNormal QueuePriority = "normal"
+	QueuePriorityLow    QueuePriority = "low"
+)
+
+func (e *QueuePriority) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = QueuePriority(s)
+	case string:
+		*e = QueuePriority(s)
+	default:
+		return fmt.Errorf("unsupported scan type for QueuePriority: %T", src)
+	}
+	return nil
+}
+
+type NullQueuePriority struct {
+	QueuePriority QueuePriority
+	Valid         bool // Valid is true if QueuePriority is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullQueuePriority) Scan(value interface{}) error {
+	if value == nil {
+		ns.QueuePriority, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.QueuePriority.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullQueuePriority) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.QueuePriority), nil
+}
+
 type Job struct {
 	ID           int64
 	State        JobState
@@ -66,4 +109,5 @@ type Job struct {
 	Results      []byte
 	Error        pgtype.Text
 	CompletedAt  pgtype.Timestamptz
+	JobPriority  QueuePriority
 }

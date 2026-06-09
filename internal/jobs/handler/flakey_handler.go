@@ -49,7 +49,10 @@ func (FlakyHandler) Process(ctx context.Context, payload []byte) ([]byte, error)
 		return nil, fmt.Errorf("job timeout")
 	}
 
-	// random failure
+	// special case
+	if p.FailRate == 0.2 {
+		panic("opps we panicked ig")
+	} // random failure
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	if r.Float64() < p.FailRate {
 		return nil, fmt.Errorf("simulated random failure")

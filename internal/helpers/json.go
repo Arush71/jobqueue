@@ -4,7 +4,7 @@ package helpers
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -16,10 +16,10 @@ type ErrorResponse struct {
 }
 
 // ReadJson reads and decodes a JSON request body into the provided destination.
-func ReadJson(r *http.Request, dst any) error {
+func ReadJson(r *http.Request, dst any, logger *slog.Logger) error {
 	defer func() {
 		if err := r.Body.Close(); err != nil {
-			log.Println("warning: failed to close request body:", err)
+			logger.Warn("failed to close request body", "error", err)
 		}
 	}()
 	decoder := json.NewDecoder(r.Body)

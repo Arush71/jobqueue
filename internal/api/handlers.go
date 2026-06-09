@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,20 +14,22 @@ import (
 	"github.com/Arush71/jobqueue/internal/db"
 	"github.com/Arush71/jobqueue/internal/helpers"
 	"github.com/Arush71/jobqueue/internal/jobs"
+	"github.com/Arush71/jobqueue/internal/metrics"
 	"github.com/Arush71/jobqueue/internal/queue"
 )
 
 // Handler holds dependencies required for handling HTTP requests.
 type Handler struct {
-	DbQ   *db.Queries
-	Queue *queue.Queue
+	DBQ    *db.Queries
+	Queue  *queue.Queue
+	Logger *slog.Logger
 }
 
 // CreateJob handles job creation requests, validates input,
 // persists the job, and enqueues it for processing.
 func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var req jobs.JobHandlerTypeHTTP
-	if err := helpers.ReadJson(r, &req); err != nil {
+	if err := helpers.ReadJson(r, &req, h.Logger); err != nil {
 		helpers.BadRequestError(w)
 		return
 	}
@@ -39,17 +42,23 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		helpers.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	jobID, err := h.DbQ.CreateJob(r.Context(), db.CreateJobParams{
-		JobType: req.JobType,
-		State:   db.JobStateQueued,
-		Payload: req.Payload,
+	if req.Priority == "" {
+		req.Priority = "normal"
+	}
+	jobID, err := h.DBQ.CreateJob(r.Context(), db.CreateJobParams{
+		JobType:     req.JobType,
+		State:       db.JobStateQueued,
+		Payload:     req.Payload,
+		JobPriority: db.QueuePriority(req.Priority),
 	})
 	if err != nil {
+		metrics.DBErrors.Inc()
+		h.Logger.Error("failed to create a job", slog.Int64("job_id", jobID), "error", err)
 		helpers.InternalServerError(w)
 		return
 	}
-	h.Queue.EnqueueJob(jobID)
-	log.Println("Job created with id and enqueued:", jobID)
+	h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority))
+	h.Logger.Info(fmt.Sprintf("Job created with id:%d and enqueued", jobID))
 	type res struct {
 		ID int64 `json:"job_id"`
 	}
@@ -66,13 +75,14 @@ func (h *Handler) GetJobsByID(w http.ResponseWriter, r *http.Request) {
 		helpers.Error(w, http.StatusBadRequest, "inavlid jod id:"+idStr)
 		return
 	}
-	job, err := h.DbQ.GetJobById(r.Context(), id)
+	job, err := h.DBQ.GetJobById(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			helpers.NotFoundError(w)
 			return
 		}
-		log.Println("db error:", err)
+		metrics.DBErrors.Inc()
+		h.Logger.Error("db error, failed to fetch job from handler", slog.Int64("job_id", id), "error", err)
 		helpers.InternalServerError(w)
 		return
 	}
@@ -100,13 +110,14 @@ func (h *Handler) GetJobResult(w http.ResponseWriter, r *http.Request) {
 		helpers.Error(w, http.StatusBadRequest, "inavlid jod id:"+idStr)
 		return
 	}
-	data, err := h.DbQ.GetResultFromJob(r.Context(), id)
+	data, err := h.DBQ.GetResultFromJob(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			helpers.NotFoundError(w)
 			return
 		}
-		log.Println("db error:", err)
+		metrics.DBErrors.Inc()
+		h.Logger.Error("db error, failed to get job results", slog.Int64("job_id", id), "error", err)
 		helpers.InternalServerError(w)
 		return
 	}
@@ -114,7 +125,7 @@ func (h *Handler) GetJobResult(w http.ResponseWriter, r *http.Request) {
 		Results     []byte    `json:"results,omitempty"`
 		Error       string    `json:"error,omitempty"`
 		State       string    `json:"state"`
-		CompletedAt time.Time `json:"completed_at,omitempty"`
+		CompletedAt time.Time `json:"completed_at"`
 	}
 	switch data.State {
 	case db.JobStateFail:
@@ -137,7 +148,7 @@ func (h *Handler) GetJobResult(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	default:
-		log.Printf("[WARNING] Job %d has unknown state: %s", id, data.State)
+		h.Logger.Error("unknown state found in job", slog.Int64("job_id", id), "state", data.State)
 		helpers.InternalServerError(w)
 	}
 }

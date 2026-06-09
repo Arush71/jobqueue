@@ -6,55 +6,71 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/Arush71/jobqueue/internal/db"
 	"github.com/Arush71/jobqueue/internal/jobs"
 	"github.com/Arush71/jobqueue/internal/jobs/handler"
+	"github.com/Arush71/jobqueue/internal/metrics"
 	"github.com/Arush71/jobqueue/internal/queue"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-var ValidationFailedErr = errors.New("validation failed, invalid payload")
+var (
+	ValidationFailedErr = errors.New("validation failed inside worker, invalid payload")
+	FatalError          = errors.New("job panicked inside worker, fatal error")
+)
 
 // DoWork continuously pulls jobs from the queue and processes them.
-func DoWork(q *queue.Queue, dbQ *db.Queries) {
+func DoWork(q *queue.Queue, schedular *queue.Schedular, dbQ *db.Queries, log *slog.Logger, workerNum int) {
 	for {
 		jobID := q.GetWork()
-		log.Println("worker picked job: id =", jobID)
+		logger := log.With(slog.Int64("job_id", jobID), slog.Int("worker_num", workerNum))
+		logger.Info("worker picked a job")
 		job, err := getJobFromID(jobID, dbQ)
 		if err != nil {
+			logger.Error("worker failed to fetch job", "error", err)
 			continue
 		}
+		logger = logger.With(slog.String("job_state", string(job.State)), slog.Int("retry_counter", int(job.RetryCounter)), slog.String("job_type", job.JobType))
 		jobHandler, err := jobs.GetJobHandler(job.JobType)
 		if err != nil {
-			log.Printf("Error from worker: picked a job whose job handler does not exist")
-			if err := FailJob(jobID, dbQ, "Job type not supported"); err != nil {
-				log.Printf("[CRITICAL] invariant violation: Job state change to fail, failed for id:%d", jobID)
+			logger.Error("worker picked a job whose job handler doesn't exist", slog.String("job_type", job.JobType))
+			if err := FailJob(jobID, dbQ, "Job type not supported", logger); err != nil {
+				logger.Error("marking job as fail, failed", "error", err)
 			}
 			continue
 		}
+		start := time.Now()
 		result, err := manageJobProcessing(job, jobHandler)
+		duration := time.Since(start).Milliseconds()
+		metrics.JobDuration.Observe(float64(duration))
 		if err != nil {
-			if errors.Is(err, ValidationFailedErr) {
-				if err := FailJob(jobID, dbQ, ValidationFailedErr.Error()); err != nil {
-					log.Printf("[CRITICAL] invariant violation: Job state change to fail, failed for id:%d , err: %s", jobID, err.Error())
+			if errors.Is(err, ValidationFailedErr) || errors.Is(err, FatalError) {
+				logger.Error(err.Error())
+				if err := FailJob(jobID, dbQ, err.Error(), logger); err != nil {
+					logger.Error("marking job as fail, failed", "error", err)
 				}
 				continue
 			}
-			manageRetries(dbQ, q, job, err.Error())
+			logger.Debug("going to rety the job")
+			if err := manageRetries(dbQ, q, job, err.Error(), logger, schedular, queue.Priority(job.JobPriority)); err != nil {
+				logger.Error("failed to retry the job", "error", err)
+			}
 			continue
 		}
-		err = SuccessJob(job.ID, dbQ, result)
+		err = SuccessJob(job.ID, dbQ, result, job.JobType)
 		if err != nil {
+			logger.Error("failed to set the job to success", "error", err)
 			continue
 		}
-		log.Println("Job successfull", job.ID)
+		logger.Info("job successfull")
 	}
 }
 
-func FailJob(jobID int64, dbQ *db.Queries, err string) error {
+func FailJob(jobID int64, dbQ *db.Queries, err string, loggger *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	errr := dbQ.FailJobWithError(ctx, db.FailJobWithErrorParams{
@@ -65,9 +81,12 @@ func FailJob(jobID int64, dbQ *db.Queries, err string) error {
 		},
 	})
 	if errr != nil {
-		log.Printf("Important [CRITICAL]: Job state to fail, failed for id %d , error: %s", jobID, errr.Error())
+		metrics.JobPersistenceFailures.Inc()
+		metrics.DBErrors.Inc()
 		return errr
 	}
+	metrics.JobsFailed.Inc()
+	loggger.Debug("job marked as failed")
 	return nil
 }
 
@@ -77,16 +96,15 @@ func getJobFromID(jobID int64, dbQ *db.Queries) (db.Job, error) {
 	job, err := dbQ.GetJobIfQueued(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Printf("Important: worker picked id that's not available in db or is already taken id:%d", jobID)
-			return db.Job{}, fmt.Errorf("%d not claimable by the worker", jobID)
+			return db.Job{}, fmt.Errorf("worker picked a id that's either not claimable or doesn't exsist: %w", err)
 		}
-		log.Printf("Important: db error, fail to fetch job with id: %d", jobID)
-		return db.Job{}, fmt.Errorf("failed to fetch job of the id %d", jobID)
+		metrics.DBErrors.Inc()
+		return db.Job{}, fmt.Errorf("db error, failed to fetch id: %w", err)
 	}
 	return job, nil
 }
 
-func SuccessJob(jobID int64, dbQ *db.Queries, result json.RawMessage) error {
+func SuccessJob(jobID int64, dbQ *db.Queries, result json.RawMessage, jobType string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := dbQ.SuccessJobWithResult(ctx, db.SuccessJobWithResultParams{
@@ -94,37 +112,51 @@ func SuccessJob(jobID int64, dbQ *db.Queries, result json.RawMessage) error {
 		Results: result,
 	})
 	if err != nil {
-		log.Printf("Important [CRITICAL]: Job state to success failed for id %d , error: %s", jobID, err.Error())
+		metrics.JobPersistenceFailures.Inc()
+		metrics.DBErrors.Inc()
 		return err
 	}
+	metrics.JobsProcessed.Inc()
+	metrics.JobsProcessedByType.WithLabelValues(jobType).Inc()
 	return nil
 }
 
-func manageJobProcessing(job db.Job, handler handler.JobHandler) ([]byte, error) {
+func manageJobProcessing(job db.Job, handler handler.JobHandler) (res []byte, err error) {
 	// validate job.
-	err := handler.Validate(job.Payload)
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v: %w", r, FatalError)
+		}
+	}()
+	err = handler.Validate(job.Payload)
 	if err != nil {
 		return nil, ValidationFailedErr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	result, err := handler.Process(ctx, job.Payload)
-	return result, err
+	res, err = handler.Process(ctx, job.Payload)
+	return res, err
 }
 
-func manageRetries(dbQ *db.Queries, queue *queue.Queue, job db.Job, previousErr string) error {
+func manageRetries(dbQ *db.Queries, queue *queue.Queue, job db.Job, previousErr string, logger *slog.Logger, schdular *queue.Schedular, jobPriority queue.Priority) error {
 	if job.RetryCounter >= jobs.MaxRetries {
 		// Marks the end of the job.
-		err := FailJob(job.ID, dbQ, previousErr)
-		return err
+		if err := FailJob(job.ID, dbQ, previousErr, logger); err != nil {
+			return fmt.Errorf("failed to set the job to fail in manageRetries, after retry counter exceeded the max: %w", err)
+		}
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	err := dbQ.UpdateRetryCounterAndChangeState(ctx, job.ID)
 	if err != nil {
-		log.Printf("Important [CRITICAL]: failed to change job state to queue and increment retry_counte , error: %s , for id: %d", err.Error(), job.ID)
-		return err
+		metrics.DBErrors.Inc()
+		return fmt.Errorf("failed to change job state to queue and increment retry_counter in retry: %w", err)
 	}
-	queue.EnqueueJob(job.ID)
+	base := 10
+	half := (base * (1 << job.RetryCounter)) / 2
+	waitTime := time.Now().Add(time.Duration(half+rand.IntN(half)) * time.Second)
+	schdular.ScheduleJob(job.ID, waitTime, jobPriority)
+	metrics.JobsRetry.Inc()
 	return nil
 }

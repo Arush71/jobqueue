@@ -12,8 +12,9 @@ type registerType map[string]handler.JobHandler
 
 // JobHandlerTypeHTTP is a type for unmarshelling the json data onto it.
 type JobHandlerTypeHTTP struct {
-	JobType string          `json:"job_type"`
-	Payload json.RawMessage `json:"payload"`
+	JobType  string          `json:"job_type"`
+	Payload  json.RawMessage `json:"payload"`
+	Priority string          `json:"priority"`
 }
 
 // Register map hooks up job handlers with their job type string.
