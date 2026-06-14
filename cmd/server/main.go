@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,7 +20,7 @@ import (
 )
 
 func setupHandler(dq *db.Queries, log *slog.Logger) *api.Handler {
-	Q := queue.SetupQueue()
+	Q := queue.SetupQueue(log)
 	return &api.Handler{
 		DBQ:    dq,
 		Queue:  Q,
@@ -82,15 +83,14 @@ func main() {
 		logger.Error("failed to recover lost jobs", "error", err)
 		return
 	}
+	workersNum := runtime.NumCPU() * 2
+	workerPool := workers.NewPool(workersNum, logger, handler.Queue, schedular, dbQuery)
+	workerPool.Start()
 	mux := http.NewServeMux()
 	api.AddRoutes(mux, handler)
 	server := http.Server{
 		Addr:    ":8080",
 		Handler: mux,
-	}
-	for i := 1; i <= 4; i++ {
-		go workers.DoWork(handler.Queue, schedular, dbQuery, logger, i)
-		logger.Info("Starting worker goroutine", slog.Int("worker_num", i))
 	}
 	logger.Info("server starting...")
 	if err := server.ListenAndServe(); err != nil {

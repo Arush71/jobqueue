@@ -24,9 +24,12 @@ var (
 )
 
 // DoWork continuously pulls jobs from the queue and processes them.
-func DoWork(q *queue.Queue, schedular *queue.Schedular, dbQ *db.Queries, log *slog.Logger, workerNum int) {
+func DoWork(q *queue.Queue, schedular *queue.Schedular, dbQ *db.Queries, log *slog.Logger, workerNum int, ctx context.Context) {
 	for {
-		jobID := q.GetWork()
+		jobID, err := q.GetWork(ctx)
+		if err != nil {
+			return
+		}
 		logger := log.With(slog.Int64("job_id", jobID), slog.Int("worker_num", workerNum))
 		logger.Info("worker picked a job")
 		job, err := getJobFromID(jobID, dbQ)

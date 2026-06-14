@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -22,7 +23,6 @@ type Schedular struct {
 }
 
 func (schedular *Schedular) manageScheduling() {
-	var timer *time.Timer
 	schedular.mu.RLock()
 	if len(schedular.scheduledJobs) == 0 {
 		schedular.mu.RUnlock()
@@ -31,7 +31,7 @@ func (schedular *Schedular) manageScheduling() {
 	}
 	latestJobScheduled := schedular.scheduledJobs[0]
 	schedular.mu.RUnlock()
-	timer = time.NewTimer(time.Until(latestJobScheduled.scheduleAt))
+	timer := time.NewTimer(time.Until(latestJobScheduled.scheduleAt))
 	for {
 		select {
 		case <-schedular.passer:
@@ -82,6 +82,7 @@ func InitSchedular(queue *Queue) *Schedular {
 // ScheduleJob helps schedule jobs for the queue
 func (schedular *Schedular) ScheduleJob(jobID int64, scheduleTime time.Time, priorityLevel Priority) {
 	if time.Now().After(scheduleTime) {
+		schedular.queue.logger.Warn("job schedultime already passed", slog.Int64("job_id", jobID))
 		schedular.queue.EnqueueJob(jobID, priorityLevel)
 		return
 	}

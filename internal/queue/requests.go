@@ -1,6 +1,10 @@
 package queue
 
-import "github.com/Arush71/jobqueue/internal/metrics"
+import (
+	"log/slog"
+
+	"github.com/Arush71/jobqueue/internal/metrics"
+)
 
 // Request represents a queue operation that can be executed
 // within the queue's internal event loop.
@@ -25,7 +29,7 @@ func (a AddReq) execute(q *Queue) {
 	case Low:
 		q.priorityQueues.low = append(q.priorityQueues.low, a.JobID)
 	default:
-		// should be impossible
+		q.logger.Error("invalid job priority", slog.Int64("job_id", a.JobID), slog.String("priority", string(a.priority)))
 		return
 	}
 	metrics.QueueDepth.Inc()

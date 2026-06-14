@@ -1,7 +1,12 @@
 // Package queue provides an in-memory job queue with safe concurrent access.
 package queue
 
-import "github.com/Arush71/jobqueue/internal/metrics"
+import (
+	"context"
+	"log/slog"
+
+	"github.com/Arush71/jobqueue/internal/metrics"
+)
 
 // Priority is the type of queue priority
 type Priority string
@@ -27,11 +32,12 @@ type Queue struct {
 	priorityQueues priorityQueuesT
 	notifyCh       chan struct{}
 	reqCh          chan Request
+	logger         *slog.Logger
 }
 
 // SetupQueue initializes a new Queue instance and starts
 // its internal event loop for handling requests.
-func SetupQueue() *Queue {
+func SetupQueue(logger *slog.Logger) *Queue {
 	q := &Queue{
 		priorityQueues: priorityQueuesT{
 			high:   make(queueType, 0),
@@ -40,6 +46,7 @@ func SetupQueue() *Queue {
 		},
 		notifyCh: make(chan struct{}, 1),
 		reqCh:    make(chan Request),
+		logger:   logger,
 	}
 	go q.loop()
 	return q
@@ -69,19 +76,27 @@ func (qs *priorityQueuesT) selectQueue() (*queueType, bool) {
 
 // GetWork retrieves a job ID from the queue, blocking until
 // a job is available.
-func (q *Queue) GetWork() int64 {
+func (q *Queue) GetWork(ctx context.Context) (int64, error) {
 	sendChan := make(chan GetQueueJob)
 	for {
 		getJob := GetWorkS{
 			SendChan: sendChan,
 		}
-		q.reqCh <- getJob
+		select {
+		case q.reqCh <- getJob:
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 		info := <-sendChan
 		if info.OK {
 			metrics.QueueDepth.Dec()
-			return info.JobID
+			return info.JobID, nil
 		}
-		<-q.notifyCh
+		select {
+		case <-q.notifyCh:
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 	}
 }
 
