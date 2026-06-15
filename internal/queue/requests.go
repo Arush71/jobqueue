@@ -24,10 +24,13 @@ func (a AddReq) execute(q *Queue) {
 	switch a.priority {
 	case High:
 		q.priorityQueues.high = append(q.priorityQueues.high, a.JobID)
+		q.numOfJob[0].Add(1)
 	case Normal:
 		q.priorityQueues.normal = append(q.priorityQueues.normal, a.JobID)
+		q.numOfJob[1].Add(1)
 	case Low:
 		q.priorityQueues.low = append(q.priorityQueues.low, a.JobID)
+		q.numOfJob[2].Add(1)
 	default:
 		q.logger.Error("invalid job priority", slog.Int64("job_id", a.JobID), slog.String("priority", string(a.priority)))
 		return

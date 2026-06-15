@@ -3,7 +3,9 @@ package queue
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/Arush71/jobqueue/internal/metrics"
 )
@@ -33,6 +35,7 @@ type Queue struct {
 	notifyCh       chan struct{}
 	reqCh          chan Request
 	logger         *slog.Logger
+	numOfJob       [3]atomic.Int32
 }
 
 // SetupQueue initializes a new Queue instance and starts
@@ -53,14 +56,34 @@ func SetupQueue(logger *slog.Logger) *Queue {
 }
 
 // EnqueueJob adds a new job ID to the queue for processing.
-func (q *Queue) EnqueueJob(jID int64, queuePriority Priority) {
+func (q *Queue) EnqueueJob(jID int64, queuePriority Priority) error {
+	QueueLimitReached := fmt.Errorf("queue limit reached, try again later")
+	switch queuePriority {
+	case High:
+		if q.numOfJob[0].Load() > 32 {
+			return QueueLimitReached
+		}
+	case Normal:
+		if q.numOfJob[1].Load() > 64 {
+			return QueueLimitReached
+		}
+	case Low:
+		if q.numOfJob[2].Load() > 128 {
+			return QueueLimitReached
+		}
+	default:
+		q.logger.Error("invalid priority", slog.Int64("job_id", jID), "priority", queuePriority)
+		return fmt.Errorf("invalid priority")
+	}
 	requeststr := AddReq{
 		JobID:    jID,
 		priority: queuePriority,
 	}
 	q.reqCh <- requeststr
+	return nil
 }
 
+// TODO: current design allows for starvation.
 func (qs *priorityQueuesT) selectQueue() (*queueType, bool) {
 	if len(qs.high) > 0 {
 		return &qs.high, true
