@@ -19,8 +19,8 @@ import (
 	"github.com/Arush71/jobqueue/internal/workers"
 )
 
-func setupHandler(dq *db.Queries, log *slog.Logger) *api.Handler {
-	Q := queue.SetupQueue(log)
+func setupHandler(dq *db.Queries, log *slog.Logger, numWorkers int) *api.Handler {
+	Q := queue.SetupQueue(log, numWorkers)
 	return &api.Handler{
 		DBQ:    dq,
 		Queue:  Q,
@@ -77,13 +77,13 @@ func main() {
 		return
 	}
 	defer pool.Close()
-	handler := setupHandler(dbQuery, logger)
+	workersNum := runtime.NumCPU() * 2
+	handler := setupHandler(dbQuery, logger, workersNum)
 	schedular := queue.InitSchedular(handler.Queue)
 	if err := RestoreLostJobs(handler.Queue, dbQuery); err != nil {
 		logger.Error("failed to recover lost jobs", "error", err)
 		return
 	}
-	workersNum := runtime.NumCPU() * 2
 	workerPool := workers.NewPool(workersNum, logger, handler.Queue, schedular, dbQuery)
 	workerPool.Start()
 	mux := http.NewServeMux()

@@ -57,7 +57,8 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		helpers.InternalServerError(w)
 		return
 	}
-	h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority))
+	if err := h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority)); err != nil {
+	}
 	h.Logger.Info(fmt.Sprintf("Job created with id:%d and enqueued", jobID))
 	type res struct {
 		ID int64 `json:"job_id"`

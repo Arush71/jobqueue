@@ -3,8 +3,9 @@ package queue
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Arush71/jobqueue/internal/metrics"
@@ -20,6 +21,56 @@ const (
 	Low    Priority = "low"
 )
 
+// IsValid reports wether the priority is valid or not
+func (p Priority) IsValid() bool {
+	switch p {
+	case High, Normal, Low:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p Priority) idx() int {
+	switch p {
+	case High:
+		return 0
+	case Normal:
+		return 1
+	case Low:
+		return 2
+	default:
+		// idx() should only ever be called on a invalid priority, therefore panic
+		panic("unknown priority lvl")
+	}
+}
+
+var errQueueLimitReached = errors.New("queue limit reached, try again later")
+
+func (q *Queue) isQueueFree(p Priority) error {
+	if !p.IsValid() {
+		q.logger.Error("invalid priority", "priority", p)
+		return errors.New("invalid priority")
+	}
+	switch p {
+	case High:
+		if q.numOfJobs[0].Load() >= 32 {
+			return errQueueLimitReached
+		}
+	case Normal:
+		if q.numOfJobs[1].Load() >= 64 {
+			return errQueueLimitReached
+		}
+	case Low:
+		if q.numOfJobs[2].Load() >= 128 {
+			return errQueueLimitReached
+		}
+	default:
+		panic("unknown priority after verifying")
+	}
+	return nil
+}
+
 type queueType []int64
 
 type priorityQueuesT struct {
@@ -33,99 +84,92 @@ type priorityQueuesT struct {
 type Queue struct {
 	priorityQueues priorityQueuesT
 	notifyCh       chan struct{}
-	reqCh          chan Request
 	logger         *slog.Logger
-	numOfJob       [3]atomic.Int32
+	mu             sync.Mutex
+	numOfJobs      [3]atomic.Int32
 }
 
 // SetupQueue initializes a new Queue instance and starts
 // its internal event loop for handling requests.
-func SetupQueue(logger *slog.Logger) *Queue {
+func SetupQueue(logger *slog.Logger, numOfWorkers int) *Queue {
 	q := &Queue{
 		priorityQueues: priorityQueuesT{
 			high:   make(queueType, 0),
 			normal: make(queueType, 0),
 			low:    make(queueType, 0),
 		},
-		notifyCh: make(chan struct{}, 1),
-		reqCh:    make(chan Request),
+		notifyCh: make(chan struct{}, numOfWorkers),
 		logger:   logger,
 	}
-	go q.loop()
 	return q
 }
 
 // EnqueueJob adds a new job ID to the queue for processing.
 func (q *Queue) EnqueueJob(jID int64, queuePriority Priority) error {
-	QueueLimitReached := fmt.Errorf("queue limit reached, try again later")
+	if err := q.isQueueFree(queuePriority); err != nil {
+		return err
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if err := q.isQueueFree(queuePriority); err != nil {
+		return err
+	}
 	switch queuePriority {
 	case High:
-		if q.numOfJob[0].Load() > 32 {
-			return QueueLimitReached
-		}
+		q.priorityQueues.high = append(q.priorityQueues.high, jID)
 	case Normal:
-		if q.numOfJob[1].Load() > 64 {
-			return QueueLimitReached
-		}
+		q.priorityQueues.normal = append(q.priorityQueues.normal, jID)
 	case Low:
-		if q.numOfJob[2].Load() > 128 {
-			return QueueLimitReached
-		}
+		q.priorityQueues.low = append(q.priorityQueues.low, jID)
+	}
+	q.numOfJobs[queuePriority.idx()].Add(1)
+	metrics.QueueDepth.Inc()
+	select {
+	case q.notifyCh <- struct{}{}:
 	default:
-		q.logger.Error("invalid priority", slog.Int64("job_id", jID), "priority", queuePriority)
-		return fmt.Errorf("invalid priority")
 	}
-	requeststr := AddReq{
-		JobID:    jID,
-		priority: queuePriority,
-	}
-	q.reqCh <- requeststr
 	return nil
 }
 
 // TODO: current design allows for starvation.
-func (qs *priorityQueuesT) selectQueue() (*queueType, bool) {
+func (qs *priorityQueuesT) selectQueue() (*queueType, Priority, bool) {
 	if len(qs.high) > 0 {
-		return &qs.high, true
+		return &qs.high, High, true
 	}
 	if len(qs.normal) > 0 {
-		return &qs.normal, true
+		return &qs.normal, Normal, true
 	}
 	if len(qs.low) > 0 {
-		return &qs.low, true
+		return &qs.low, Low, true
 	}
-	return nil, false
+	return nil, "", false
 }
 
 // GetWork retrieves a job ID from the queue, blocking until
 // a job is available.
 func (q *Queue) GetWork(ctx context.Context) (int64, error) {
-	sendChan := make(chan GetQueueJob)
 	for {
-		getJob := GetWorkS{
-			SendChan: sendChan,
-		}
 		select {
-		case q.reqCh <- getJob:
 		case <-ctx.Done():
 			return 0, ctx.Err()
+		default:
 		}
-		info := <-sendChan
-		if info.OK {
-			metrics.QueueDepth.Dec()
-			return info.JobID, nil
+		q.mu.Lock()
+		queue, priority, ok := q.priorityQueues.selectQueue()
+		if !ok {
+			q.mu.Unlock()
+			select {
+			case <-q.notifyCh:
+				continue
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
 		}
-		select {
-		case <-q.notifyCh:
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		}
-	}
-}
-
-// loop runs the internal event loop that processes queue requests.
-func (q *Queue) loop() {
-	for req := range q.reqCh {
-		req.execute(q)
+		jobID := (*queue)[0]
+		*queue = (*queue)[1:]
+		q.numOfJobs[priority.idx()].Add(-1)
+		q.mu.Unlock()
+		metrics.QueueDepth.Dec()
+		return jobID, nil
 	}
 }
