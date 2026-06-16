@@ -45,6 +45,14 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Priority == "" {
 		req.Priority = "normal"
 	}
+	if err := h.Queue.IsQueueFree(queue.Priority(req.Priority)); err != nil {
+		if errors.Is(err, queue.ErrQueueLimitReached) {
+			helpers.Error(w, http.StatusServiceUnavailable, "queue is full, try again later.")
+		} else {
+			helpers.BadRequestError(w)
+		}
+		return
+	}
 	jobID, err := h.DBQ.CreateJob(r.Context(), db.CreateJobParams{
 		JobType:     req.JobType,
 		State:       db.JobStateQueued,
@@ -57,7 +65,8 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		helpers.InternalServerError(w)
 		return
 	}
-	if err := h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority)); err != nil {
+	if err := h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority), true); err != nil {
+		panic("should not be possible: priority should be valid with no limit err")
 	}
 	h.Logger.Info(fmt.Sprintf("Job created with id:%d and enqueued", jobID))
 	type res struct {

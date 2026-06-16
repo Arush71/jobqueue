@@ -1,7 +1,9 @@
 package queue
 
 import (
+	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"sort"
 	"sync"
 	"time"
@@ -57,7 +59,7 @@ func (schedular *Schedular) manageScheduling() {
 				}
 			}
 			schedular.mu.Unlock()
-			schedular.queue.EnqueueJob(latestJobScheduled.jobID, latestJobScheduled.priority)
+			schedular.enqueueJob(latestJobScheduled.jobID, latestJobScheduled.priority)
 			schedular.mu.RLock()
 			if len(schedular.scheduledJobs) > 0 {
 				latestJobScheduled = schedular.scheduledJobs[0]
@@ -83,7 +85,7 @@ func InitSchedular(queue *Queue) *Schedular {
 func (schedular *Schedular) ScheduleJob(jobID int64, scheduleTime time.Time, priorityLevel Priority) {
 	if time.Now().After(scheduleTime) {
 		schedular.queue.logger.Warn("job schedultime already passed", slog.Int64("job_id", jobID))
-		schedular.queue.EnqueueJob(jobID, priorityLevel)
+		schedular.enqueueJob(jobID, priorityLevel)
 		return
 	}
 	schedular.mu.Lock()
@@ -99,5 +101,17 @@ func (schedular *Schedular) ScheduleJob(jobID int64, scheduleTime time.Time, pri
 	select {
 	case schedular.passer <- struct{}{}:
 	default:
+	}
+}
+
+func (schedular *Schedular) enqueueJob(jobID int64, priorityLevel Priority) {
+	if err := schedular.queue.EnqueueJob(jobID, priorityLevel, false); err != nil {
+		if errors.Is(err, ErrQueueLimitReached) {
+			base := 6
+			waitTime := time.Now().Add(time.Duration(base+rand.IntN(base)) * time.Second)
+			schedular.ScheduleJob(jobID, waitTime, priorityLevel)
+			return
+		}
+		panic("unexpected error")
 	}
 }

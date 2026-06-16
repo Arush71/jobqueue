@@ -57,7 +57,9 @@ func RestoreLostJobs(q *queue.Queue, dbQ *db.Queries) error {
 		return fmt.Errorf("failed to recover jobs from db after changing the state: %w", err)
 	}
 	for _, v := range jobIDs {
-		q.EnqueueJob(v.ID, queue.Priority(v.JobPriority))
+		if err := q.EnqueueJob(v.ID, queue.Priority(v.JobPriority), true); err != nil {
+			panic("got an unexpected error")
+		}
 	}
 	return nil
 }

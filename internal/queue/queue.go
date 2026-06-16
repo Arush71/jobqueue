@@ -45,25 +45,27 @@ func (p Priority) idx() int {
 	}
 }
 
-var errQueueLimitReached = errors.New("queue limit reached, try again later")
+// ErrQueueLimitReached error for when queue has reached its limit
+var ErrQueueLimitReached = errors.New("queue limit reached, try again later")
 
-func (q *Queue) isQueueFree(p Priority) error {
+// IsQueueFree reports wether queue is free or not
+func (q *Queue) IsQueueFree(p Priority) error {
 	if !p.IsValid() {
 		q.logger.Error("invalid priority", "priority", p)
 		return errors.New("invalid priority")
 	}
 	switch p {
 	case High:
-		if q.numOfJobs[0].Load() >= 32 {
-			return errQueueLimitReached
+		if q.queueSizePerPriority[0].Load() >= 32 {
+			return ErrQueueLimitReached
 		}
 	case Normal:
-		if q.numOfJobs[1].Load() >= 64 {
-			return errQueueLimitReached
+		if q.queueSizePerPriority[1].Load() >= 64 {
+			return ErrQueueLimitReached
 		}
 	case Low:
-		if q.numOfJobs[2].Load() >= 128 {
-			return errQueueLimitReached
+		if q.queueSizePerPriority[2].Load() >= 128 {
+			return ErrQueueLimitReached
 		}
 	default:
 		panic("unknown priority after verifying")
@@ -82,11 +84,11 @@ type priorityQueuesT struct {
 // Queue represents an in-memory job queue that coordinates
 // producers and workers using channels.
 type Queue struct {
-	priorityQueues priorityQueuesT
-	notifyCh       chan struct{}
-	logger         *slog.Logger
-	mu             sync.Mutex
-	numOfJobs      [3]atomic.Int32
+	priorityQueues       priorityQueuesT
+	notifyCh             chan struct{}
+	logger               *slog.Logger
+	mu                   sync.Mutex
+	queueSizePerPriority [3]atomic.Int32
 }
 
 // SetupQueue initializes a new Queue instance and starts
@@ -105,14 +107,18 @@ func SetupQueue(logger *slog.Logger, numOfWorkers int) *Queue {
 }
 
 // EnqueueJob adds a new job ID to the queue for processing.
-func (q *Queue) EnqueueJob(jID int64, queuePriority Priority) error {
-	if err := q.isQueueFree(queuePriority); err != nil {
-		return err
+func (q *Queue) EnqueueJob(jID int64, queuePriority Priority, force bool) error {
+	if !force {
+		if err := q.IsQueueFree(queuePriority); err != nil {
+			return err
+		}
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if err := q.isQueueFree(queuePriority); err != nil {
-		return err
+	if !force {
+		if err := q.IsQueueFree(queuePriority); err != nil {
+			return err
+		}
 	}
 	switch queuePriority {
 	case High:
@@ -122,7 +128,7 @@ func (q *Queue) EnqueueJob(jID int64, queuePriority Priority) error {
 	case Low:
 		q.priorityQueues.low = append(q.priorityQueues.low, jID)
 	}
-	q.numOfJobs[queuePriority.idx()].Add(1)
+	q.queueSizePerPriority[queuePriority.idx()].Add(1)
 	metrics.QueueDepth.Inc()
 	select {
 	case q.notifyCh <- struct{}{}:
@@ -167,7 +173,7 @@ func (q *Queue) GetWork(ctx context.Context) (int64, error) {
 		}
 		jobID := (*queue)[0]
 		*queue = (*queue)[1:]
-		q.numOfJobs[priority.idx()].Add(-1)
+		q.queueSizePerPriority[priority.idx()].Add(-1)
 		q.mu.Unlock()
 		metrics.QueueDepth.Dec()
 		return jobID, nil
