@@ -135,7 +135,7 @@ func manageJobProcessing(job db.Job, handler handler.JobHandler) (res []byte, er
 	if err != nil {
 		return nil, ValidationFailedErr
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	res, err = handler.Process(ctx, job.Payload)
 	return res, err

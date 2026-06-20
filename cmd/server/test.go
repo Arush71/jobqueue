@@ -1,84 +1,83 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"sync"
+	"log"
+	"net"
+	"net/http"
+	"os/signal"
 	"sync/atomic"
+	"syscall"
+	"time"
 )
 
-type Queue struct {
-	mu       sync.Mutex
-	notEmpty *sync.Cond
-	notFull  *sync.Cond
-	items    []int
-	capacity int
-	closed   bool
-}
+const (
+	_shutdownPeriod      = 15 * time.Second
+	_shutdownHardPeriod  = 3 * time.Second
+	_readinessDrainDelay = 5 * time.Second
+)
 
-func NewQueue(capacity int) *Queue {
-	q := &Queue{capacity: capacity}
-	q.notEmpty = sync.NewCond(&q.mu) // both Conds share the one mutex
-	q.notFull = sync.NewCond(&q.mu)
-	return q
-}
-
-func (q *Queue) Push(v int) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for len(q.items) == q.capacity { // ALWAYS wait in a loop, never an if
-		q.notFull.Wait()
-	}
-	q.items = append(q.items, v)
-	q.notEmpty.Signal() // wake one waiting consumer
-}
-
-func (q *Queue) Pop() (int, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for len(q.items) == 0 && !q.closed {
-		q.notEmpty.Wait()
-	}
-	if len(q.items) == 0 { // closed and drained
-		return 0, false
-	}
-	v := q.items[0]
-	q.items = q.items[1:]
-	q.notFull.Signal() // wake one waiting producer
-	return v, true
-}
-
-func (q *Queue) Close() {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.closed = true
-	q.notEmpty.Broadcast() // wake EVERY consumer so they can see closed and exit
-}
+var isShuttingDown atomic.Bool
 
 func run() {
-	q := NewQueue(5)
-	var wg sync.WaitGroup
-	var count, total atomic.Int64
+	// Setup signal context
+	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				v, ok := q.Pop()
-				if !ok {
-					return
-				}
-				count.Add(1)
-				total.Add(int64(v))
-			}
-		}()
+	// Readiness endpoint
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if isShuttingDown.Load() {
+			http.Error(w, "Shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprintln(w, "OK")
+	})
+
+	// Sample business logic
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+			fmt.Fprintln(w, "Hello, world!")
+		case <-r.Context().Done():
+			http.Error(w, "Request cancelled.", http.StatusRequestTimeout)
+		}
+	})
+
+	// Ensure in-flight requests aren't cancelled immediately on SIGTERM
+	ongoingCtx, stopOngoingGracefully := context.WithCancel(context.Background())
+	server := &http.Server{
+		Addr: ":8080",
+		BaseContext: func(_ net.Listener) context.Context {
+			return ongoingCtx
+		},
 	}
 
-	for v := 1; v <= 30; v++ {
-		q.Push(v)
-	}
-	q.Close()
+	go func() {
+		log.Println("Server starting on :8080.")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			panic(err)
+		}
+	}()
 
-	wg.Wait()
-	fmt.Println("consumed:", count.Load(), "sum:", total.Load()) // consumed: 30 sum: 465
+	// Wait for signal
+	<-rootCtx.Done()
+	stop()
+	isShuttingDown.Store(true)
+	log.Println("Received shutdown signal, shutting down.")
+
+	// Give time for readiness check to propagate
+	time.Sleep(_readinessDrainDelay)
+	log.Println("Readiness check propagated, now waiting for ongoing requests to finish.")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), _shutdownPeriod)
+	defer cancel()
+	err := server.Shutdown(shutdownCtx)
+	stopOngoingGracefully()
+	if err != nil {
+		log.Println("Failed to wait for ongoing requests to finish, waiting for forced cancellation.")
+		time.Sleep(_shutdownHardPeriod)
+	}
+
+	log.Println("Server shut down gracefully.")
 }
