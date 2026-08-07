@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-// GetDecocdedImage opens and decodes an image from the given file path,
+// GetDecodedImage opens and decodes an image from the given file path,
 // returning the image, its format, or an error if decoding fails.
-func GetDecocdedImage(path string) (image.Image, string, error) {
+func GetDecodedImage(path string) (image.Image, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, "", err

@@ -19,8 +19,21 @@ ALTER TABLE jobs
 ADD COLUMN payload JSONB NOT NULL;
 
 -- +goose Down
+TRUNCATE TABLE jobs CASCADE;
+
 ALTER TABLE jobs
 DROP COLUMN IF EXISTS job_type;
 
 ALTER TABLE jobs
 DROP COLUMN IF EXISTS payload;
+
+CREATE TYPE job_type AS ENUM ('resize', 'compress', 'grayscale');
+
+ALTER TABLE jobs
+ADD COLUMN type job_type NOT NULL;
+
+ALTER TABLE jobs
+ADD COLUMN image_path TEXT NOT NULL;
+
+ALTER TABLE jobs
+ADD COLUMN params JSONB NOT NULL;

@@ -1,2 +1,15 @@
 .env
 
+# Go build artifacts
+/main
+*.test
+coverage.out
+
+# Runtime and generated output
+/output/
+/tmp/
+*_output.jpg
+*_output.png
+
+# Editor and operating-system files
+.DS_Store

@@ -17,6 +17,7 @@ func (a *App) Shutdown() {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		a.workerPool.Stop(_workerShutdownPeriod)
+		a.scheduler.Stop()
 	})
 	wg.Go(func() {
 		if err := a.server.Shutdown(_shutdownServerPeriod); err != nil {

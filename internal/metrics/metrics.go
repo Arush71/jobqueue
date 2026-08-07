@@ -19,7 +19,7 @@ import (
 var JobsProcessed = promauto.NewCounter(
 	prometheus.CounterOpts{
 		Name: "job_processed_total",
-		Help: "Total number of successfull jobs processed",
+		Help: "Total number of successful jobs processed",
 	},
 )
 

@@ -105,7 +105,7 @@ func (payload *imagePayload) UnmarshalJSON(data []byte) error {
 	for k, v := range params {
 		val, ok := v.(float64)
 		if !ok {
-			return fmt.Errorf("parms fields %s should be a number", k)
+			return fmt.Errorf("params field %s should be a number", k)
 		}
 		payload.Params[strings.ToLower(k)] = val
 	}
@@ -147,22 +147,22 @@ func (ImageHandler) Process(ctx context.Context, payload []byte) ([]byte, error)
 		}
 		// Always make sure that Validate runs before calling Process.
 		// Validation done.
-		image, format, err := images.GetDecocdedImage(img.ImagePath)
+		image, format, err := images.GetDecodedImage(img.ImagePath)
 		if err != nil {
 			done <- returnResults{Failed: fmt.Errorf("error image process: couldn't either open or decode the image")}
 			return
 		}
-		proccessedImg := image
+		processedImg := image
 		quality := 100
 		switch img.ImageJobType {
 		case Compress:
 			quality = int(img.Params["quantity"])
 		case GrayScale:
-			proccessedImg = imaging.Grayscale(image)
+			processedImg = imaging.Grayscale(image)
 		case Resize:
-			proccessedImg = imaging.Resize(image, int(img.Params["width"]), int(img.Params["height"]), imaging.Lanczos)
+			processedImg = imaging.Resize(image, int(img.Params["width"]), int(img.Params["height"]), imaging.Lanczos)
 		}
-		outputPath, err := images.SaveImage(proccessedImg, format, img.ImagePath, quality)
+		outputPath, err := images.SaveImage(processedImg, format, img.ImagePath, quality)
 		if err != nil {
 			done <- returnResults{Failed: fmt.Errorf("error image process: couldn't save image")}
 			return

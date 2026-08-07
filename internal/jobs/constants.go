@@ -1,6 +1,6 @@
 package jobs
 
-// MaxRetries is the maximum reties allowed for a job
+// MaxRetries is the maximum number of retries allowed for a job.
 const MaxRetries int16 = 3
 
 const (

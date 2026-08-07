@@ -14,19 +14,19 @@ type Pool struct {
 	numWorkers int
 	logger     *slog.Logger
 	q          *queue.Queue
-	schedular  *queue.Schedular
+	scheduler  *queue.Scheduler
 	dbQ        *db.Queries
 	wg         sync.WaitGroup
 	ctx        context.Context
 	cancel     context.CancelFunc
 }
 
-func NewPool(numWorkers int, logger *slog.Logger, q *queue.Queue, schedular *queue.Schedular, dbQ *db.Queries) *Pool {
+func NewPool(numWorkers int, logger *slog.Logger, q *queue.Queue, scheduler *queue.Scheduler, dbQ *db.Queries) *Pool {
 	return &Pool{
 		numWorkers: numWorkers,
 		logger:     logger,
 		q:          q,
-		schedular:  schedular,
+		scheduler:  scheduler,
 		dbQ:        dbQ,
 		wg:         sync.WaitGroup{},
 	}
@@ -51,7 +51,7 @@ func (p *Pool) Start() {
 								p.logger.Error("worker crashed", slog.Int("worker_num", workerNum), slog.Any("error", r))
 							}
 						}()
-						DoWork(p.q, p.schedular, p.dbQ, p.logger, workerNum, p.ctx)
+						DoWork(p.q, p.scheduler, p.dbQ, p.logger, workerNum, p.ctx)
 					}()
 				}
 				p.logger.Info("worker finished", slog.Int("worker_num", workerNum))
@@ -74,6 +74,6 @@ func (p *Pool) Stop(duration time.Duration) {
 		p.logger.Info("worker stopped gracefully")
 		break
 	case <-shutdownCtxPool.Done():
-		p.logger.Error("failed to close workers in time, forcefull shutdown")
+		p.logger.Error("failed to close workers in time, forced shutdown")
 	}
 }

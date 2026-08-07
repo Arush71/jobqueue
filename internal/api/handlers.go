@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -18,6 +17,8 @@ import (
 	"github.com/Arush71/jobqueue/internal/queue"
 )
 
+const maxRequestBodyBytes = 1 << 20
+
 // Handler holds dependencies required for handling HTTP requests.
 type Handler struct {
 	DBQ    *db.Queries
@@ -28,6 +29,7 @@ type Handler struct {
 // CreateJob handles job creation requests, validates input,
 // persists the job, and enqueues it for processing.
 func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	var req jobs.JobHandlerTypeHTTP
 	if err := helpers.ReadJson(r, &req, h.Logger); err != nil {
 		helpers.BadRequestError(w)
@@ -45,7 +47,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Priority == "" {
 		req.Priority = "normal"
 	}
-	if err := h.Queue.IsQueueFree(queue.Priority(req.Priority)); err != nil {
+	if err := h.Queue.CheckCapacity(queue.Priority(req.Priority)); err != nil {
 		if errors.Is(err, queue.ErrQueueLimitReached) {
 			helpers.Error(w, http.StatusServiceUnavailable, "queue is full, try again later.")
 		} else {
@@ -68,7 +70,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if err := h.Queue.EnqueueJob(jobID, queue.Priority(req.Priority), true); err != nil {
 		panic("should not be possible: priority should be valid with no limit err")
 	}
-	h.Logger.Info(fmt.Sprintf("Job created with id:%d and enqueued", jobID))
+	h.Logger.Info("job created and enqueued", slog.Int64("job_id", jobID))
 	type res struct {
 		ID int64 `json:"job_id"`
 	}
@@ -82,7 +84,7 @@ func (h *Handler) GetJobsByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		helpers.Error(w, http.StatusBadRequest, "inavlid jod id:"+idStr)
+		helpers.Error(w, http.StatusBadRequest, "invalid job id: "+idStr)
 		return
 	}
 	job, err := h.DBQ.GetJobById(r.Context(), id)
@@ -117,7 +119,7 @@ func (h *Handler) GetJobResult(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		helpers.Error(w, http.StatusBadRequest, "inavlid jod id:"+idStr)
+		helpers.Error(w, http.StatusBadRequest, "invalid job id: "+idStr)
 		return
 	}
 	data, err := h.DBQ.GetResultFromJob(r.Context(), id)

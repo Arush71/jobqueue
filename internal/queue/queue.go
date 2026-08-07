@@ -19,9 +19,13 @@ const (
 	High   Priority = "high"
 	Normal Priority = "normal"
 	Low    Priority = "low"
+
+	highQueueLimit   int32 = 32
+	normalQueueLimit int32 = 64
+	lowQueueLimit    int32 = 128
 )
 
-// IsValid reports wether the priority is valid or not
+// IsValid reports whether the priority is valid.
 func (p Priority) IsValid() bool {
 	switch p {
 	case High, Normal, Low:
@@ -48,23 +52,23 @@ func (p Priority) idx() int {
 // ErrQueueLimitReached error for when queue has reached its limit
 var ErrQueueLimitReached = errors.New("queue limit reached, try again later")
 
-// IsQueueFree reports wether queue is free or not
-func (q *Queue) IsQueueFree(p Priority) error {
+// CheckCapacity reports whether the selected priority queue has capacity.
+func (q *Queue) CheckCapacity(p Priority) error {
 	if !p.IsValid() {
 		q.logger.Error("invalid priority", "priority", p)
 		return errors.New("invalid priority")
 	}
 	switch p {
 	case High:
-		if q.queueSizePerPriority[0].Load() >= 32 {
+		if q.queueSizePerPriority[0].Load() >= highQueueLimit {
 			return ErrQueueLimitReached
 		}
 	case Normal:
-		if q.queueSizePerPriority[1].Load() >= 64 {
+		if q.queueSizePerPriority[1].Load() >= normalQueueLimit {
 			return ErrQueueLimitReached
 		}
 	case Low:
-		if q.queueSizePerPriority[2].Load() >= 128 {
+		if q.queueSizePerPriority[2].Load() >= lowQueueLimit {
 			return ErrQueueLimitReached
 		}
 	default:
@@ -109,14 +113,14 @@ func SetupQueue(logger *slog.Logger, numOfWorkers int) *Queue {
 // EnqueueJob adds a new job ID to the queue for processing.
 func (q *Queue) EnqueueJob(jID int64, queuePriority Priority, force bool) error {
 	if !force {
-		if err := q.IsQueueFree(queuePriority); err != nil {
+		if err := q.CheckCapacity(queuePriority); err != nil {
 			return err
 		}
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if !force {
-		if err := q.IsQueueFree(queuePriority); err != nil {
+		if err := q.CheckCapacity(queuePriority); err != nil {
 			return err
 		}
 	}

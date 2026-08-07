@@ -1,4 +1,4 @@
-// Package app orchastrates everything
+// Package app orchestrates the application.
 package app
 
 import (
@@ -24,16 +24,21 @@ type App struct {
 	dbQ        *db.Queries
 	workerPool *workers.Pool
 	queue      *queue.Queue
-	schedular  *queue.Schedular
+	scheduler  *queue.Scheduler
 	logger     *slog.Logger
 	server     *server.Server
 }
 
 func setupDBAndEnv() (*pgxpool.Pool, *db.Queries, error) {
 	if err := godotenv.Load(); err != nil {
-		return nil, nil, fmt.Errorf("failed to load dotenv: %w", err)
+		if !os.IsNotExist(err) {
+			return nil, nil, fmt.Errorf("failed to load dotenv: %w", err)
+		}
 	}
 	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		return nil, nil, fmt.Errorf("DB_URL is required")
+	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
@@ -51,7 +56,7 @@ func StartApp() (*App, error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
-	logger.Info("Logger initilized")
+	logger.Info("logger initialized")
 	pool, dbQ, err := setupDBAndEnv()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup db and/or env: %w", err)
@@ -63,8 +68,8 @@ func StartApp() (*App, error) {
 		Queue:  q,
 		DBQ:    dbQ,
 	}
-	schedular := queue.InitSchedular(q)
-	workerPool := workers.NewPool(workersNum, logger, q, schedular, dbQ)
+	scheduler := queue.InitScheduler(q)
+	workerPool := workers.NewPool(workersNum, logger, q, scheduler, dbQ)
 	workerPool.Start()
 	mux := http.NewServeMux()
 	api.AddRoutes(mux, handler)
@@ -80,7 +85,7 @@ func StartApp() (*App, error) {
 		dbQ:        dbQ,
 		workerPool: workerPool,
 		queue:      q,
-		schedular:  schedular,
+		scheduler:  scheduler,
 		server:     server,
 		logger:     logger,
 	}, nil

@@ -2,4 +2,4 @@
 CREATE TYPE job_state AS ENUM ('queued', 'processing', 'fail', 'success');
 
 -- +goose Down
-DROP TYPE job_type;
+DROP TYPE job_state;
